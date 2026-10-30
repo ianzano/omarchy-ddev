@@ -29,6 +29,14 @@ ShellRoot {
             var root = plugin.item
             test.check(root.selectedName === "stopped" && root.snapshots.length === 1, "OFFLINE_SNAPSHOTS_LOADED")
             test.check(!root.testFind("createSnapshot-stopped").enabled && !root.testFind("restoreSnapshot-example.sql.gz").enabled, "OFFLINE_SNAPSHOT_MUTATIONS_DISABLED")
+            var input = root.testFind("snapshotName-stopped")
+            test.check(input.enabled, "OFFLINE_SNAPSHOT_FILTER_ENABLED")
+            input.text = "EXAMPLE"
+            test.check(root.testFind("snapshots-stopped").filteredSnapshots.length === 1, "SNAPSHOT_FILTER_IGNORES_CASE")
+            input.text = "missing"
+            test.check(root.testFind("snapshots-stopped").filteredSnapshots.length === 0 && root.testFind("snapshotEmpty-stopped").text === "No snapshots match this name.", "SNAPSHOT_FILTER_EMPTY_STATE")
+            input.text = ""
+            test.check(root.testFind("snapshots-stopped").filteredSnapshots.length === 1 && root.snapshots.length === 1, "CLEAR_FILTER_RESTORES_LIST")
             root.closeDetails()
             root.selectLog("demo")
         }
@@ -46,6 +54,24 @@ ShellRoot {
         interval: 1600; running: true
         onTriggered: {
             test.check(!plugin.item.logJobs.demo, "STOPPED_PROJECT_READER_RELEASED")
+            var root = plugin.item
+            root.projects = root.projects.map(p => Object.assign({}, p, {status: p.name === "demo" ? "running" : "stopped"}))
+            root.selectProject("demo")
+        }
+    }
+    Timer {
+        interval: 2000; running: true
+        onTriggered: {
+            var root = plugin.item
+            root.testFind("snapshotName-demo").text = "new-backup"
+            root.testFind("createSnapshot-demo").clicked()
+            test.check(root.jobs.demo.actionName === "snapshot" && root.jobs.demo.command[4] === "new-backup", "FILTER_INPUT_STILL_NAMES_NEW_SNAPSHOT")
+        }
+    }
+    Timer {
+        interval: 2800; running: true
+        onTriggered: {
+            test.check(!plugin.item.busy, "NAMED_SNAPSHOT_ACTION_COMPLETED")
             console.log("STOPPED_CHECKS_PASSED")
             Qt.quit()
         }

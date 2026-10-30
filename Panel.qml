@@ -884,6 +884,8 @@ Panel {
                                 visible: root.selectedName === projectRow.modelData.name || !!projectRow.consoleState.action || !!projectRow.consoleState.message
                             }
                             Column {
+                                id: snapshotPanel
+                                readonly property var filteredSnapshots: root.snapshots.filter(s => s.name.toLowerCase().includes(snapshotName.text.trim().toLowerCase()))
                                 objectName: "snapshots-" + projectRow.modelData.name
                                 width: parent.width
                                 spacing: Style.space(8)
@@ -895,14 +897,14 @@ Panel {
                                 }
                                 RowLayout {
                                     width: parent.width
-                                    TextField { id: snapshotName; enabled: projectRow.running && !projectRow.busy; Layout.fillWidth: true; placeholderText: "Snapshot name (optional)" }
+                                    TextField { id: snapshotName; objectName: "snapshotName-" + projectRow.modelData.name; Layout.fillWidth: true; placeholderText: "Filter snapshots / name for new snapshot" }
                                     Action { objectName: "createSnapshot-" + projectRow.modelData.name; text: "Create"; iconText: "󰐕"; tooltipText: projectRow.running ? "Create database snapshot" : "Start the project first"; enabled: projectRow.running && !projectRow.busy; onClicked: root.execute("snapshot", root.selectedName, snapshotName.text.trim()) }
                                     IconAction { iconText: "󰑐"; tooltipText: "Reload snapshots"; enabled: !projectRow.busy; onClicked: root.execute("snapshots", root.selectedName, "") }
                                 }
-                                Label { text: "Local project snapshots, newest first. Start the project to create or restore a snapshot."; width: parent.width; wrapMode: Text.Wrap; opacity: 0.65 }
-                                Label { visible: root.snapshots.length === 0; text: projectRow.busy && root.actionFor(projectRow.modelData.name) === "snapshots" ? "Loading snapshots…" : "No local snapshots found." }
+                                Label { text: "Type to filter by name, or use the text to create a new snapshot. Start the project to create or restore."; width: parent.width; wrapMode: Text.Wrap; opacity: 0.65 }
+                                Label { objectName: "snapshotEmpty-" + projectRow.modelData.name; visible: snapshotPanel.filteredSnapshots.length === 0; text: projectRow.busy && root.actionFor(projectRow.modelData.name) === "snapshots" ? "Loading snapshots…" : root.snapshots.length ? "No snapshots match this name." : "No local snapshots found." }
                                 Repeater {
-                                    model: root.selectedName === projectRow.modelData.name ? root.snapshots : []
+                                    model: root.selectedName === projectRow.modelData.name ? snapshotPanel.filteredSnapshots : []
                                     Rectangle {
                                         id: snapshotRow
                                         objectName: "snapshotCard-" + modelData.name
@@ -1050,6 +1052,23 @@ Panel {
             visible: !actionButton.enabled && disabledHover.hovered && text !== ""
             text: actionButton.tooltipText
             delay: 400
+            padding: 0
+            background: BorderSurface {
+                color: actionButton.tooltipBackground
+                borderSpec: actionButton._tooltipBorderSpec
+                radius: 0
+            }
+            contentItem: Text {
+                textFormat: Text.PlainText
+                text: actionButton.tooltipText
+                color: actionButton.tooltipForeground
+                font.family: Style.font.family
+                font.pixelSize: Style.font.bodySmall
+                leftPadding: Border.left(actionButton._tooltipBorderSpec) + Style.spacing.controlPaddingX
+                rightPadding: Border.right(actionButton._tooltipBorderSpec) + Style.spacing.controlPaddingX
+                topPadding: Border.top(actionButton._tooltipBorderSpec) + Style.spacing.controlPaddingY
+                bottomPadding: Border.bottom(actionButton._tooltipBorderSpec) + Style.spacing.controlPaddingY
+            }
         }
     }
     component ToolbarAction: Action {
