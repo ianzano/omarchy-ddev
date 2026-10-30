@@ -33,7 +33,7 @@ class DiscoveryTests(unittest.TestCase):
         return subprocess.CompletedProcess([], 0, json.dumps({'raw': {'Commands': [{'Name': name, 'Description': 'Example description'} for name in names]}}), '')
 
     def test_usage_names_global_project_symlinks_and_availability(self):
-        self.script('different-filename', 'cache-clear [args]')
+        self.script('different-filename', 'cache-clear [flags]')
         self.script('global-command', 'build-assets', True)
         self.script('duplicate', 'cache-clear', True)
         self.script('disabled-on-this-os', 'unavailable')
@@ -77,3 +77,28 @@ class DiscoveryTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 backend.main(['custom-command', 'demo', 'ddev:delete'])
             run.assert_not_called()
+
+
+    def test_unannotated_command_uses_filename_and_help_availability(self):
+        script = self.script('asset-build', 'placeholder')
+        script.write_text('#!/bin/bash\necho "Building assets"\n')
+        with patch.object(backend, 'run', return_value=self.help('asset-build')):
+            self.assertEqual([i['command'] for i in backend.discovered_commands(self.project)], ['asset-build'])
+        with patch.object(backend, 'run', return_value=self.help()):
+            self.assertEqual(backend.discovered_commands(self.project), [])
+
+    def test_required_args_generic_wrappers_and_project_overrides_are_hidden(self):
+        self.script('generic', 'generic [flags] [args]', True)
+        self.script('required', 'required <target>')
+        self.script('subcommands', 'subcommands on|off')
+        self.script('overridden', 'overridden', True)
+        self.script('overridden', 'overridden <target>')
+        script = self.script('unannotated-wrapper', 'placeholder')
+        script.write_text('#!/bin/bash\nexec php "$@"\n')
+        script = self.script('bare-but-requires-arg', 'bare-but-requires-arg')
+        script.write_text(script.read_text() + 'echo "$1"\n')
+        large = self.script('too-large-to-inspect', 'too-large-to-inspect')
+        large.write_text(large.read_text() + '# padding\n' * 4000 + 'echo "$1"\n')
+        self.script('works-alone', 'works-alone [flags]')
+        with patch.object(backend, 'run', return_value=self.help('generic', 'required', 'subcommands', 'overridden', 'unannotated-wrapper', 'bare-but-requires-arg', 'too-large-to-inspect', 'works-alone')):
+            self.assertEqual([i['command'] for i in backend.discovered_commands(self.project)], ['works-alone'])

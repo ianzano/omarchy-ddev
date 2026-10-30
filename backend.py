@@ -153,7 +153,7 @@ def shortcuts(project):
 
 
 def discovered_commands(project):
-    """Use Usage annotations for names, then let DDEV decide availability."""
+    """Discover conservative zero-argument actions, including unannotated scripts."""
     global_dir = Path(child_environment().get('DDEV_GLOBAL_DIR') or Path.home() / '.ddev')
     definitions = {}
     for folder in (global_dir / 'commands', Path(project['approot']) / '.ddev' / 'commands'):
@@ -167,18 +167,23 @@ def discovered_commands(project):
                     continue
                 try:
                     with path.open(errors='replace') as stream:
-                        header = stream.read(32768)
+                        header = stream.read(32769)
                 except OSError:
                     continue
-                usage = re.search(r'^\s*##\s*Usage:\s*(.+)$', header, re.MULTILINE)
-                if not usage:
-                    continue
-                words = usage[1].strip().strip('"\'').split()
+                usage = re.search(r'^\s*##\s*Usage:\s*(.*)$', header, re.MULTILINE)
+                words = usage[1].strip().strip('"\'').split() if usage else [path.name]
                 if not words:
                     continue
                 name = words[0]
-                if re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9:_-]*', name):
-                    definitions[name] = True
+                if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9:_-]*', name):
+                    continue
+                # Keep the automatic buttons conservative: bare commands or
+                # optional flags, with no script references to positional args.
+                # A project override must also hide an eligible global command.
+                tail = ' '.join(words[1:])
+                zero_arguments = not re.sub(r'\[flags\]', '', tail, flags=re.IGNORECASE).strip()
+                positional = re.search(r'\$(?:[1-9@*#]|\{[1-9@*#])', header)
+                definitions[name] = zero_arguments and not positional and len(header) <= 32768
     if not definitions:
         return []
     proc = run(['ddev', 'help', '-j'], cwd=project['approot'])
@@ -190,7 +195,7 @@ def discovered_commands(project):
     available = {item['Name']: item.get('Description', '') for item in raw['Commands'] if isinstance(item, dict) and isinstance(item.get('Name'), str)}
     return [{'id': 'ddev:' + name, 'label': name, 'command': name,
              'description': available[name], 'source': 'ddev'}
-            for name in sorted(definitions, key=str.casefold) if name in available]
+            for name in sorted(definitions, key=str.casefold) if definitions[name] and name in available]
 
 
 def command_catalog(project):
