@@ -14,10 +14,12 @@ with tempfile.TemporaryDirectory(prefix='ddev-ui-check-') as directory:
     (root / 'plugin').mkdir()
     source = (project / 'Panel.qml').read_text()
     source = source.replace('property bool monitoringEnabled: true', 'property bool monitoringEnabled: false')
+    source = source.replace('var follow = opened && view.live', 'var follow = view.live')
     shutil.copy2(project / 'Monitoring.js', root / 'plugin/Monitoring.js')
     # Test-only access to visual descendants, kept out of the installed plugin.
     source = source.replace('    id: root\n', '''    id: root
     property var testAlerts: []
+    function testFlushEarly() { announce(Monitoring.flush([], Date.now())) }
     function testFind(name, node) {
         node = node || content
         if (node.objectName === name) return node
@@ -28,6 +30,7 @@ with tempfile.TemporaryDirectory(prefix='ddev-ui-check-') as directory:
         return null
     }
 ''', 1)
+    source = source.replace('announce(Monitoring.flush(blocked))', 'announce(Monitoring.flush(blocked, Date.now() + 2100))')
     source = source.replace('    function announce(alerts) {', '    function announce(alerts) {\n        testAlerts = testAlerts.concat(alerts)')
     (root / 'plugin/Panel.qml').write_text(source)
     env = os.environ.copy()

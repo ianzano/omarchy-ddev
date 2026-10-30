@@ -11,9 +11,9 @@ Native Quickshell taskbar plugin. Click the Docker icon and running/registered c
 
 ![Project startup progress with a spinner and inline console output](docs/previews/console.png)
 
-![Application containers with health, live statistics, and pause controls](docs/previews/applications.png)
+![Compact container overview with health, live statistics, and pause controls](docs/previews/applications.png)
 
-![Inline container log viewer with service selection](docs/previews/logs.png)
+![Combined live project logs with service prefixes](docs/previews/logs.png)
 
 </details>
 
@@ -22,10 +22,10 @@ Previews render the actual plugin interface with fictional projects, paths, snap
 - Lists every project returned by `ddev list -j`, with live status every 15 seconds.
 - Sliding start/stop switches, colored project status cards, Restart beside each power switch (enabled only for running projects), and icon shortcuts for browse, Mailpit, and the project folder.
 - Filter by project name or path.
-- Inspect each application's containers, health, CPU, memory, network and disk I/O, and process count.
+- Compact container overview with health, CPU and memory; additional metrics on hover.
 - Pause/resume individual container processes, with controls scoped to registered DDEV projects.
-- View container logs inline, switch services, and follow updates without blocking project actions.
-- Receive desktop alerts for stopped, unhealthy, started, and recovered containers, even with the panel closed.
+- View combined live project logs inline, with service labels and no need to switch containers.
+- Receive one desktop notification per project transition: started, restarted, stopped, unhealthy, or recovered.
 - Show local database snapshots with timestamps and sizes; create automatically named or custom named snapshots.
 - Restore a selected snapshot after explicit confirmation that the current database will be replaced.
 - Per-project animated spinners and elapsed time during operations. Snapshots and live stdout/stderr appear inside the corresponding project card. Each project keeps its own console output for the shell session. A compact preview shows the latest six lines; **Show all output** expands the card, using only the main panel scrollbar. Shows errors and command output. Docker connectivity errors produce an unknown status rather than a misleading stopped status.
@@ -64,14 +64,13 @@ For manual installs, pull the repository and run `python3 install.py` again.
 
 ## Usage
 
-**Applications** expands the service containers belonging to a registered DDEV project. Live statistics update about every three seconds while that section is open. CPU, memory usage/limit, network I/O, disk I/O, and process count come from Docker. Paused and stopped containers show unavailable statistics rather than misleading zero values. Containers without a Docker health check have no health badge.
+**Containers** expands a compact overview of the services belonging to a DDEV project. Each row shows the service, status/health, CPU and memory, with a small pause/resume control. Hover over the metrics for the memory limit, network I/O, disk I/O, and process count. Statistics update about every three seconds while the overview is open. Paused and stopped containers show unavailable statistics rather than misleading zero values.
 
 Use **Pause** or **Resume** on a service to freeze/unfreeze its processes with Docker. This preserves the container and its memory; it is different from stopping a project. Restart is disabled while any service is paused. Other projects can still run operations concurrently.
 
-**Logs** opens the project's web container by default; service buttons switch between containers. The viewer keeps up to 200 timestamped lines (24,000 characters), refreshing every two seconds while **Live** is selected and the panel is open. It shows both stdout and stderr. Use **Show all logs** to expand within the panel's single scroll area. Reading logs does not lock start/stop or pause/resume controls. Closing the viewer stops its refreshes.
+**Logs** opens one combined project log. **Live** follows all discovered DDEV service feeds using `ddev logs --follow --service=<service> --tail=200 --time`, merging their stdout/stderr with `[web]`, `[db]`, and other service prefixes. A plain `ddev logs -f` follows only the web service by default ([DDEV reference](https://docs.ddev.com/en/stable/users/usage/commands/#logs)). Recent output is bounded to 24,000 characters; the non-live snapshot merges the latest 200 lines in timestamp order. Use **Show all logs** to expand within the panel's single scroll area. Following logs does not lock project actions. Turning Live off, closing the viewer, or closing the panel stops its follower processes; reopening or container recreation reconnects the stream.
 
-**Container alerts** in settings toggles desktop notifications. Docker events detect stops, starts, unhealthy states, and health recovery; background inventory checks provide a fallback. Initial discovery is silent, repeated states are deduplicated across displays, and pausing/resuming does not produce stop/start alerts. The event connection retries automatically when Docker returns. Idle inventory checks run about every ten seconds; live statistics are collected only while Applications is open. Monitoring covers containers labelled `com.ddev.site-name` for registered projects; shared DDEV infrastructure and services that omit DDEV labels are excluded.
-
+**Project alerts** in settings toggles desktop notifications. Container events are coalesced after a two-second quiet period into one project-level state, so starting or stopping web and database containers produces one project notification. Plugin-managed lifecycle operations suppress intermediate alerts until the operation finishes and the project is ready. Recovery is announced when all affected services are healthy again. Initial discovery is silent; repeated project states are deduplicated across displays. Pause/resume does not produce stop/start alerts. Events reconnect automatically when Docker returns; background inventory checks provide a fallback. Idle checks run about every ten seconds; live statistics are collected only while Containers is open. Monitoring covers containers labelled `com.ddev.site-name` for registered projects; shared DDEV infrastructure and services that omit DDEV labels are excluded.
 
 Click Snapshots on a project to expand its database controls directly inside that project’s card. Create accepts an optional name using letters, numbers, dots, underscores, and dashes. Snapshot discovery supports `.gz`, `.zst`, `.mbstream`, and `.xbstream` files, including symlinked `.ddev` directories. The list shows snapshots in the selected project's `.ddev/db_snapshots`; snapshots in other Git worktrees are not included.
 
@@ -109,7 +108,7 @@ Container tests verify Docker label scoping, pause/resume state guards, bounded 
 
 ## Local data
 
-The repository contains source code and synthetic test fixtures. Project names, paths, environment values, database snapshots, and command output are discovered on the user's machine at runtime. The plugin has no telemetry or upload code; command output and logs remain in memory for the shell session. Lifecycle alerts are delivered through the local desktop notification daemon. Container discovery reads selected state and label fields, not container environment values. Environment variables are passed locally to child processes and are not written to the repository. Local environment files, runtime configs, logs, backups, and snapshot directories are excluded by `.gitignore`.
+The repository contains source code and synthetic test fixtures. Project names, paths, environment values, database snapshots, and command output are discovered on the user's machine at runtime. The plugin has no telemetry or upload code; command output and combined project logs remain in memory for the shell session. Lifecycle alerts are delivered through the local desktop notification daemon. Container discovery reads selected state and label fields, not container environment values. Environment variables are passed locally to child processes and are not written to the repository. Local environment files, runtime configs, logs, backups, and snapshot directories are excluded by `.gitignore`.
 
 ## License
 

@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "ianzano.ddev",
   "name": "DDEV Projects",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "author": "ianzano",
   "license": "MIT",
-  "description": "DDEV projects, container logs, live statistics, pause/resume, alerts, and database snapshots.",
+  "description": "DDEV projects, combined live logs, compact container stats, pause/resume, project alerts, and database snapshots.",
   "kinds": [
     "bar-widget"
   ],
@@ -34,7 +34,7 @@
       {
         "key": "alertsEnabled",
         "type": "boolean",
-        "label": "Container status alerts",
+        "label": "Project status alerts",
         "defaultValue": true
       }
     ]

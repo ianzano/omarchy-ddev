@@ -3,6 +3,9 @@ import json
 from pathlib import Path
 import subprocess
 import tempfile
+import sys
+import os
+import time
 import unittest
 from unittest.mock import patch
 
@@ -104,12 +107,77 @@ class ContainerActionsTests(unittest.TestCase):
                     backend.main([action, 'demo', CID])
                 run.assert_not_called()
 
-    def test_logs_are_bounded_and_do_not_follow_forever(self):
-        with patch.object(backend, 'containers', return_value=([container()], '')), patch.object(backend, 'run', return_value=completed('x' * 30000, None)) as run:
-            result = backend.main(['logs', 'demo', CID])
+    def test_project_logs_merge_services_in_timestamp_order(self):
+        web = container()
+        db = dict(container(OTHER), service='db')
+        def logs(argv, **kwargs):
+            return completed('2026-01-01T12:00:02Z web message\n' if '--service=web' in argv else '2026-01-01T12:00:01Z database message\n', None)
+        with patch.object(backend, 'containers', return_value=([web, db], '')), patch.object(backend, 'run', side_effect=logs) as run:
+            result = backend.main(['logs', 'demo'])
+        self.assertTrue(result['ok'])
+        self.assertEqual(result['logs'].splitlines(), ['[db] 2026-01-01T12:00:01Z database message', '[web] 2026-01-01T12:00:02Z web message'])
+        self.assertEqual(run.call_count, 2)
+        for call in run.call_args_list:
+            self.assertEqual(call.args[0][:2], ['ddev', 'logs'])
+            self.assertIn('--tail=200', call.args[0])
+            self.assertNotIn('--follow', call.args[0])
+            self.assertEqual(call.kwargs['cwd'], self.project['approot'])
+
+    def test_project_logs_are_bounded_and_scope_services(self):
+        other = dict(container(OTHER, 'other'), service='private-service')
+        with patch.object(backend, 'containers', return_value=([container(), other], '')), patch.object(backend, 'run', return_value=completed('x' * 30000, None)) as run:
+            result = backend.main(['logs', 'demo'])
         self.assertEqual(len(result['logs']), 24000)
-        self.assertEqual(run.call_args.args[0], ['docker', 'logs', '--tail', '200', '--timestamps', CID])
-        self.assertTrue(run.call_args.kwargs['merged'])
+        self.assertEqual(run.call_count, 1)
+        self.assertIn('--service=web', run.call_args.args[0])
+
+    def test_no_containers_is_a_non_error_waiting_state(self):
+        with patch.object(backend, 'containers', return_value=([], '')), patch.object(backend, 'run') as run:
+            result = backend.main(['logs', 'demo'])
+        self.assertTrue(result['ok'])
+        self.assertEqual(result['logs'], '')
+        run.assert_not_called()
+
+    def test_project_logs_reject_container_argument(self):
+        with self.assertRaises(ValueError):
+            backend.main(['logs', 'demo', CID])
+
+
+class FollowLogsTests(unittest.TestCase):
+    def test_follow_streams_all_services_and_cleans_process_groups(self):
+        script = (
+            "import importlib.util,sys; "
+            "s=importlib.util.spec_from_file_location('b',sys.argv[1]); "
+            "b=importlib.util.module_from_spec(s); s.loader.exec_module(b); "
+            "b.log_services=lambda entries,project:['web','db']; "
+            "b.log_command=lambda service,follow=False:[sys.executable,'-u','-c',"
+            "\"import sys,time; print(sys.argv[1]+' ready',flush=True); time.sleep(60)\",service]; "
+            "b.follow_project_logs([],{'name':'demo','approot':sys.argv[2]})"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            proc = subprocess.Popen([sys.executable, '-u', '-c', script, str(Path(backend.__file__).resolve()), directory], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            children = []
+            try:
+                messages = [json.loads(proc.stdout.readline()), json.loads(proc.stdout.readline())]
+                self.assertTrue(all(message['event'] == 'log' for message in messages))
+                self.assertEqual({message['text'].split(' ', 1)[0] for message in messages}, {'[web]', '[db]'})
+                self.assertIsNone(proc.poll())
+                children = subprocess.check_output(['ps', '-o', 'pid=', '--ppid', str(proc.pid)], text=True).split()
+                self.assertEqual(len(children), 2)
+                proc.terminate()
+                _, errors = proc.communicate(timeout=8)
+                self.assertEqual(proc.returncode, 0, errors)
+                self.assertTrue(all(not Path('/proc', pid).exists() for pid in children))
+            finally:
+                if proc.poll() is None:
+                    proc.terminate()
+                    try:
+                        proc.communicate(timeout=8)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                        proc.communicate()
+                proc.stdout.close()
+                proc.stderr.close()
 
 
 class EventTests(unittest.TestCase):

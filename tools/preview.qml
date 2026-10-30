@@ -27,7 +27,7 @@ ShellRoot {
         }
         panel.applyInventory(demoContainers, false)
         if (scene === "applications") panel.applicationProject = "storefront"
-        if (scene === "logs") panel.updateLog("storefront", {id: "a".repeat(64), service: "web", open: true, live: true, expanded: true, error: "", text: "2026-01-01T12:00:00Z Web server ready\n2026-01-01T12:00:01Z GET / 200\n2026-01-01T12:00:02Z GET /assets/app.css 200\n2026-01-01T12:00:05Z GET /api/products 200"})
+        if (scene === "logs") panel.updateLog("storefront", {open: true, live: true, expanded: true, error: "", text: "[web] 2026-01-01T12:00:00Z Web server ready\n[db] 2026-01-01T12:00:01Z Database ready\n[web] 2026-01-01T12:00:02Z GET /assets/app.css 200\n[web] 2026-01-01T12:00:05Z GET /api/products 200"})
         if (scene === "snapshots") {
             panel.selectedName = "storefront"
             panel.snapshots = [

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Small JSON bridge to DDEV. Commands use argv arrays, never a shell."""
 import json
+from concurrent.futures import ThreadPoolExecutor
 import codecs
 from functools import lru_cache
 import stat
@@ -226,6 +227,96 @@ def watch_events():
             signal.signal(signum, handler)
 
 
+def log_services(entries, project):
+    inventory, _ = containers(entries)
+    return sorted({item['service'] for item in inventory if item['project'] == project
+                   and re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]*', item['service'])})
+
+
+def log_command(service, follow=False):
+    return ['ddev', 'logs', '--service=' + service, '--tail=200', '--time'] + (['--follow'] if follow else [])
+
+
+def project_logs(entries, project):
+    services = log_services(entries, project['name'])
+    if not services:
+        return {'ok': True, 'logs': '', 'message': 'No project containers are available yet.'}
+    def read(service):
+        proc = run(log_command(service), cwd=project['approot'], timeout=20, merged=True)
+        output = (proc.stdout or '') + (proc.stderr or '')
+        return service, proc.returncode, output
+    lines = []
+    failures = []
+    with ThreadPoolExecutor(max_workers=min(len(services), 8)) as pool:
+        for service, code, output in pool.map(read, services):
+            if code:
+                failures.append(service)
+            for line in output.splitlines():
+                # Docker timestamps sort lexically; keep the service visible.
+                timestamp = line.split(' ', 1)[0] if re.match(r'^\d{4}-\d\d-\d\dT', line) else ''
+                lines.append((timestamp, '[' + service + '] ' + line))
+    lines.sort(key=lambda row: row[0])
+    return {'ok': len(failures) < len(services), 'logs': '\n'.join(line for _, line in lines[-200:])[-24000:],
+            'message': 'Could not read logs from: ' + ', '.join(failures) if failures else ''}
+
+
+def follow_project_logs(entries, project):
+    services = log_services(entries, project['name'])
+    if not services:
+        return {'ok': True, 'logs': '', 'message': 'No project containers are available yet.'}
+    followers = []
+    previous_handlers = {}
+    def shutdown(signum, frame):
+        raise SystemExit(0)
+    try:
+        previous_handlers = {signum: signal.signal(signum, shutdown) for signum in (signal.SIGTERM, signal.SIGINT)}
+        with selectors.DefaultSelector() as selector:
+            for service in services:
+                proc = subprocess.Popen(log_command(service, follow=True), cwd=project['approot'],
+                                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                        stdin=subprocess.DEVNULL, env=child_environment(), start_new_session=True)
+                follower = {'process': proc, 'service': service, 'decoder': codecs.getincrementaldecoder('utf-8')(errors='replace'), 'pending': ''}
+                followers.append(follower)
+                selector.register(proc.stdout, selectors.EVENT_READ, follower)
+            while selector.get_map():
+                for key, _ in selector.select(timeout=0.5):
+                    follower = key.data
+                    chunk = os.read(key.fileobj.fileno(), 4096)
+                    if not chunk:
+                        selector.unregister(key.fileobj)
+                        follower['pending'] += follower['decoder'].decode(b'', final=True)
+                        if follower['pending']:
+                            print(json.dumps({'event': 'log', 'text': '[' + follower['service'] + '] ' + follower['pending'] + '\n'}), flush=True)
+                        continue
+                    follower['pending'] += follower['decoder'].decode(chunk)
+                    while '\n' in follower['pending']:
+                        line, follower['pending'] = follower['pending'].split('\n', 1)
+                        print(json.dumps({'event': 'log', 'text': '[' + follower['service'] + '] ' + line + '\n'}), flush=True)
+                    # A malformed service must not grow an unbounded partial line.
+                    if len(follower['pending']) > 4096:
+                        print(json.dumps({'event': 'log', 'text': '[' + follower['service'] + '] ' + follower['pending'] + '\n'}), flush=True)
+                        follower['pending'] = ''
+        return {'ok': True, 'message': 'Project log stream ended; reconnecting when live viewing is enabled.'}
+    finally:
+        for follower in followers:
+            proc = follower['process']
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+            try:
+                proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                proc.wait()
+            proc.stdout.close()
+        for signum, handler in previous_handlers.items():
+            signal.signal(signum, handler)
+
+
 def main(args):
     action = args[0] if args else 'list'
     if action == 'poweroff':
@@ -255,14 +346,14 @@ def main(args):
     cwd = project['approot']
     if not (Path(cwd) / '.ddev' / 'config.yaml').is_file():
         raise ValueError('Project configuration is missing: ' + cwd)
-    if action in ('logs', 'pause', 'resume'):
+    if action in ('logs', 'logs-follow'):
+        if len(args) != 2:
+            raise ValueError('Project logs do not take a container ID')
+        return follow_project_logs(entries, project) if action == 'logs-follow' else project_logs(entries, project)
+    if action in ('pause', 'resume'):
         if len(args) != 3:
             raise ValueError('Choose a container from this project')
         container = selected_container(entries, project['name'], args[2])
-        if action == 'logs':
-            proc = run(['docker', 'logs', '--tail', '200', '--timestamps', container['id']], timeout=15, merged=True)
-            return {'ok': proc.returncode == 0, 'logs': ((proc.stdout or '') + (proc.stderr or ''))[-24000:],
-                    'message': '' if proc.returncode == 0 else (proc.stderr or proc.stdout or '').strip() or 'Could not read container logs'}
         if action == 'pause' and container['state'] != 'running':
             raise ValueError('Only a running container can be paused')
         if action == 'resume' and container['state'] != 'paused':
