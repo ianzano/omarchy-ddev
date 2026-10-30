@@ -20,7 +20,8 @@ Native Quickshell taskbar plugin. Click the Docker icon and running/registered c
 Previews render the actual plugin interface with fictional projects, paths, snapshots, and console output.
 
 - Lists every project returned by `ddev list -j`, with live status every 15 seconds.
-- Sliding start/stop switches, colored project status cards, Restart beside each power switch (enabled only for running projects), and icon shortcuts for browse, Mailpit, and the project folder.
+- Sliding start/stop switches, colored project status cards, a distinct, labelled Restart control beside each power switch (enabled only for running projects), and icon shortcuts for browse, Mailpit, and the project folder.
+- Project actions share one left-aligned row: Site, Logs, Containers, Snapshots, Mailpit, and Folder.
 - Filter by project name or path.
 - Compact container overview with health, CPU and memory; additional metrics on hover.
 - Pause/resume individual container processes, with controls scoped to registered DDEV projects.

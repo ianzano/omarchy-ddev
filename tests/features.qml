@@ -17,6 +17,19 @@ ShellRoot {
         interval: 400; running: true
         onTriggered: {
             var root = plugin.item
+            var toolbar = root.testFind("projectActions-demo")
+            var actionNames = ["openProjectSite-demo", "openProjectLogs-demo", "showProjectContainers-demo", "showProjectSnapshots-demo", "openProjectMailpit-demo", "openProjectFolder-demo"]
+            var right = -1
+            var top = -1
+            for (var a = 0; a < actionNames.length; a++) {
+                var button = root.testFind(actionNames[a])
+                var point = button.mapToItem(toolbar, 0, 0)
+                if (a === 0) top = point.y
+                test.check(Math.abs(point.y - top) < 1 && point.x >= right && point.x + button.width <= toolbar.width + 1, "PROJECT_ACTION_ALIGNED_" + a)
+                right = point.x + button.width
+            }
+            var restart = root.testFind("restartProject-demo")
+            test.check(restart.text === "Restart" && restart.iconText !== root.testFind("refreshProjectsButton").iconText, "RESTART_DISTINCT_FROM_REFRESH")
             root.applyInventory(test.inventory("running", "healthy"), true)
             root.flushAlerts()
             test.check(root.testAlerts.length === 0, "NO_INITIAL_INVENTORY_ALERTS")

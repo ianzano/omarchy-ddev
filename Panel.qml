@@ -614,14 +614,15 @@ Panel {
                                 }
                                 Label { text: projectRow.modelData.type; color: root.muted; font.pixelSize: Style.font.caption }
                                 }
-                                IconAction {
+                                ToolbarAction {
                                     id: restartProject
                                     objectName: "restartProject-" + projectRow.modelData.name
                                     anchors.right: powerSwitch.left
                                     anchors.rightMargin: Style.space(6)
                                     anchors.verticalCenter: parent.verticalCenter
-                                    iconText: "󰑐"
-                                    tooltipText: projectRow.running ? "Restart project" : "Start the project before restarting"
+                                    iconText: "󰜉"
+                                    text: "Restart"
+                                    tooltipText: projectRow.hasPaused ? "Resume containers before restarting" : projectRow.running ? "Restart project" : "Start the project before restarting"
                                     enabled: !projectRow.busy && projectRow.running && !projectRow.hasPaused
                                     onClicked: root.execute("restart", projectRow.modelData.name, "")
                                 }
@@ -642,37 +643,58 @@ Panel {
                                     PanelToolTip { visible: parent.containsMouse; text: projectRow.running ? "Stop project" : "Start project" }
                                 }
                             }
-                            Label { width: parent.width; text: projectRow.modelData.shortroot || projectRow.modelData.approot; elide: Text.ElideMiddle; color: root.muted; font.pixelSize: Style.font.caption }
                             RowLayout {
                                 width: parent.width
-                                spacing: Style.space(6)
-                                Action { text: "Open site"; iconText: "󰖟"; foreground: root.success; enabled: !projectRow.busy && projectRow.running; onClicked: root.execute("browse", projectRow.modelData.name, "") }
-                                Action { text: "Snapshots"; iconText: "󰆼"; selected: root.selectedName === projectRow.modelData.name; enabled: !projectRow.busy; onClicked: root.selectProject(projectRow.modelData.name) }
-                                Item { Layout.fillWidth: true }
-                                IconAction { iconText: "󰇮"; tooltipText: "Open Mailpit"; enabled: !projectRow.busy && projectRow.running; onClicked: root.execute("mailpit", projectRow.modelData.name, "") }
-                                IconAction { iconText: "󰉋"; tooltipText: "Open project folder"; enabled: !projectRow.busy; onClicked: root.execute("folder", projectRow.modelData.name, "") }
+                                spacing: Style.space(10)
+                                Label { Layout.fillWidth: true; elide: Text.ElideMiddle; text: projectRow.modelData.shortroot || projectRow.modelData.approot; color: root.muted; font.pixelSize: Style.font.caption }
+                                Label { text: projectRow.serviceContainers.length + " containers"; color: root.muted; font.pixelSize: Style.font.caption }
                             }
                             RowLayout {
+                                objectName: "projectActions-" + projectRow.modelData.name
                                 width: parent.width
-                                spacing: Style.space(6)
-                                Action {
-                                    text: "Containers"; iconText: "󰡨"
-                                    selected: root.applicationProject === projectRow.modelData.name
-                                    onClicked: root.showApplications(projectRow.modelData.name)
+                                spacing: Style.space(5)
+                                ToolbarAction {
+                                    objectName: "openProjectSite-" + projectRow.modelData.name
+                                    text: "Site"; iconText: "󰖟"; foreground: root.success
+                                    tooltipText: "Open project site"
+                                    enabled: !projectRow.busy && projectRow.running
+                                    onClicked: root.execute("browse", projectRow.modelData.name, "")
                                 }
-                                Action {
+                                ToolbarAction {
                                     objectName: "openProjectLogs-" + projectRow.modelData.name
                                     text: "Logs"; iconText: "󰆍"
                                     selected: !!root.logFor(projectRow.modelData.name).open
-                                    enabled: true
                                     tooltipText: root.logFor(projectRow.modelData.name).open ? "Close project logs" : "Open project logs"
                                     onClicked: root.toggleLog(projectRow.modelData.name)
                                 }
-                                Label {
-                                    Layout.fillWidth: true; elide: Text.ElideRight
-                                    text: projectRow.serviceContainers.length + " containers"
-                                    color: root.muted; font.pixelSize: Style.font.caption
+                                ToolbarAction {
+                                    objectName: "showProjectContainers-" + projectRow.modelData.name
+                                    text: "Containers"; iconText: "󰡨"
+                                    selected: root.applicationProject === projectRow.modelData.name
+                                    tooltipText: "Container overview and live statistics"
+                                    onClicked: root.showApplications(projectRow.modelData.name)
                                 }
+                                ToolbarAction {
+                                    objectName: "showProjectSnapshots-" + projectRow.modelData.name
+                                    text: "Snapshots"; iconText: "󰆼"
+                                    selected: root.selectedName === projectRow.modelData.name
+                                    tooltipText: "Database snapshots"
+                                    enabled: !projectRow.busy
+                                    onClicked: root.selectProject(projectRow.modelData.name)
+                                }
+                                IconAction {
+                                    objectName: "openProjectMailpit-" + projectRow.modelData.name
+                                    iconText: "󰇮"; tooltipText: "Open Mailpit"
+                                    enabled: !projectRow.busy && projectRow.running
+                                    onClicked: root.execute("mailpit", projectRow.modelData.name, "")
+                                }
+                                IconAction {
+                                    objectName: "openProjectFolder-" + projectRow.modelData.name
+                                    iconText: "󰉋"; tooltipText: "Open project folder"
+                                    enabled: !projectRow.busy
+                                    onClicked: root.execute("folder", projectRow.modelData.name, "")
+                                }
+                                Item { Layout.fillWidth: true }
                             }
                             Column {
                                 objectName: "applications-" + projectRow.modelData.name
@@ -913,6 +935,14 @@ Panel {
         font.pixelSize: Style.font.body
     }
     component Action: Button { focusable: true; bordered: true; fontSize: Style.font.caption; opacity: enabled ? 1 : 0.4 }
+    component ToolbarAction: Action {
+        implicitHeight: Style.space(32)
+        Layout.minimumWidth: implicitWidth
+        Layout.alignment: Qt.AlignVCenter
+        horizontalPadding: Style.space(8)
+        verticalPadding: 0
+        iconSize: Style.space(14)
+    }
     component IconAction: Action {
         implicitWidth: Style.space(32)
         implicitHeight: Style.space(32)
