@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Small JSON bridge to DDEV. Commands use argv arrays, never a shell."""
 import json
+import hashlib
+import shlex
+import uuid
+import fcntl
 import ipaddress
 from urllib.parse import urlsplit
 from concurrent.futures import ThreadPoolExecutor
@@ -117,6 +121,82 @@ def snapshots(project):
             entries.append({'name': path.name, 'path': str(path.resolve()), 'size': stat.st_size,
                             'modified': stat.st_mtime})
     return sorted(entries, key=lambda s: s['modified'], reverse=True)
+
+
+def shortcut_file(project):
+    config = Path(os.environ.get('XDG_CONFIG_HOME') or Path.home() / '.config')
+    key = hashlib.sha256(str(Path(project['approot']).resolve()).encode()).hexdigest()
+    return config / 'omarchy' / 'ddev-shortcuts' / (key + '.json')
+
+
+def shortcut_args(command):
+    if not isinstance(command, str) or len(command) > 2000 or any(c in command for c in ('\x00', '\n', '\r')):
+        raise ValueError('Enter a single DDEV command')
+    args = shlex.split(command)
+    if args and args[0] == 'ddev':
+        args = args[1:]
+    if not args or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9:_-]*', args[0]):
+        raise ValueError('Enter a DDEV command, for example: drush cr')
+    if any(arg in ('|', '||', '&&', ';', '>', '>>', '<', '&') for arg in args):
+        raise ValueError('Use DDEV arguments; shell operators are not supported')
+    return args
+
+
+def shortcuts(project):
+    path = shortcut_file(project)
+    if not path.exists():
+        return []
+    data = json.loads(path.read_text())
+    if not isinstance(data, list) or not all(isinstance(item, dict) and all(isinstance(item.get(key), str) for key in ('id', 'label', 'command')) for item in data):
+        raise ValueError('Invalid local shortcut configuration')
+    return data
+
+
+def change_shortcut(project, payload=None, remove=None):
+    path = shortcut_file(project)
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with path.with_suffix('.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        items = shortcuts(project)
+        if remove is not None:
+            if not any(item['id'] == remove for item in items):
+                raise ValueError('Shortcut no longer exists; reload commands')
+            items = [item for item in items if item['id'] != remove]
+        else:
+            data = json.loads(payload)
+            if not isinstance(data, dict) or not isinstance(data.get('label'), str) or not isinstance(data.get('command'), str):
+                raise ValueError('Enter a label and DDEV command')
+            label = data.get('label', '').strip()
+            command = data.get('command', '').strip()
+            if not label or len(label) > 80 or any(ord(c) < 32 for c in label):
+                raise ValueError('Give the shortcut a label of up to 80 characters')
+            shortcut_args(command)
+            identifier = data.get('id') or uuid.uuid4().hex
+            if data.get('id') and not any(item['id'] == identifier for item in items):
+                raise ValueError('Shortcut no longer exists; reload commands')
+            item = {'id': identifier, 'label': label, 'command': command}
+            items = [item if old['id'] == identifier else old for old in items] if data.get('id') else items + [item]
+        temporary = path.with_suffix('.tmp')
+        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, 'w') as stream:
+            stream.write(json.dumps(items, indent=2) + '\n')
+        temporary.replace(path)
+    return {'ok': True, 'commands': items}
+
+
+def delete_snapshot(project, selected):
+    # Unlink the directory entry, never a symlink's external target.
+    folder = Path(project['approot']) / '.ddev' / 'db_snapshots'
+    if not selected or selected not in {item['path'] for item in snapshots(project)}:
+        raise ValueError('Choose an existing snapshot from this project')
+    candidates = [path for path in folder.iterdir() if path.is_file()
+                  and path.name.endswith(('.gz', '.zst', '.mbstream', '.xbstream'))
+                  and str(path.resolve()) == selected]
+    if len(candidates) != 1:
+        raise ValueError('Snapshot path is ambiguous; manage it in the snapshot folder')
+    candidates[0].unlink()
+    return {'ok': True, 'snapshots': snapshots(project), 'message': 'Snapshot deleted'}
 
 
 # Inspect only fields needed by the UI; never read container environment values.
@@ -376,7 +456,7 @@ def browse_domains(project, selected=None, all_domains=False):
 
 def main(args):
     action = args[0] if args else 'list'
-    if action not in {'list', 'monitor', 'watch', 'poweroff', 'logs', 'logs-follow', 'domains', 'browse', 'browse-all', 'snapshots', 'snapshot', 'restore', 'mailpit', 'folder', 'start', 'stop', 'restart'}:
+    if action not in {'list', 'monitor', 'watch', 'poweroff', 'logs', 'logs-follow', 'domains', 'browse', 'browse-all', 'snapshots', 'snapshot', 'restore', 'mailpit', 'folder', 'start', 'stop', 'restart', 'commands', 'save-command', 'delete-command', 'custom-command', 'delete-snapshot', 'snapshot-folder'}:
         raise ValueError('Unsupported action')
     if action == 'poweroff':
         proc = run(['ddev', 'poweroff'], timeout=1800, stream=True)
@@ -405,6 +485,30 @@ def main(args):
     cwd = project['approot']
     if not (Path(cwd) / '.ddev' / 'config.yaml').is_file():
         raise ValueError('Project configuration is missing: ' + cwd)
+    if action == 'commands':
+        return {'ok': True, 'commands': shortcuts(project)}
+    if action in ('save-command', 'delete-command', 'custom-command', 'delete-snapshot'):
+        if len(args) != 3:
+            raise ValueError('Choose an item from this project')
+        if action == 'save-command':
+            return change_shortcut(project, payload=args[2])
+        if action == 'delete-command':
+            return change_shortcut(project, remove=args[2])
+        if action == 'delete-snapshot':
+            return delete_snapshot(project, args[2])
+        if project.get('status') != 'running':
+            raise ValueError('Start the project first')
+        item = next((item for item in shortcuts(project) if item['id'] == args[2]), None)
+        if not item:
+            raise ValueError('Shortcut no longer exists; reload commands')
+        proc = run(['ddev', *shortcut_args(item['command'])], cwd=cwd, timeout=1800, stream=True)
+        return {'ok': proc.returncode == 0, 'message': (proc.stdout + '\n' + proc.stderr).strip()[-24000:] or ('Done' if proc.returncode == 0 else 'Command failed')}
+    if action == 'snapshot-folder':
+        folder = Path(cwd) / '.ddev' / 'db_snapshots'
+        if not folder.is_dir():
+            raise ValueError('No snapshot folder exists yet. Create a snapshot first.')
+        proc = run(['xdg-open', str(folder)], timeout=20)
+        return {'ok': proc.returncode == 0, 'message': proc.stderr.strip() or 'Opened snapshot folder'}
     if action in ('logs', 'logs-follow'):
         if len(args) != 2:
             raise ValueError('Project logs do not take a container ID')

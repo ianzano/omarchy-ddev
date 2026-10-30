@@ -11,7 +11,7 @@ ShellRoot {
             root.testFind("openProjectSite-demo").clicked()
             test.check(root.domainProject === "demo", "DOMAINS_BUTTON_OPENS_PICKER")
             var toolbar = root.testFind("projectActions-demo")
-            var names = ["openProjectSite-demo", "openProjectLogs-demo", "showProjectContainers-demo", "showProjectSnapshots-demo", "openProjectMailpit-demo", "openProjectFolder-demo"]
+            var names = ["openProjectSite-demo", "openProjectLogs-demo", "showProjectContainers-demo", "showProjectSnapshots-demo", "showProjectCommands-demo", "openProjectMenu-demo"]
             var edge = -1
             var top = -1
             for (var i = 0; i < names.length; i++) {

@@ -23,3 +23,7 @@ shell.json.*
 *.qslog
 *.bak
 *.bak.*
+
+# Local command shortcut configuration
+ddev-shortcuts/
+fixture-state.json

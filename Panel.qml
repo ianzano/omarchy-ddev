@@ -35,6 +35,7 @@ Panel {
     function closeDetails() {
         activeDetail = {project: "", tab: ""}
         pendingRestore = ""
+        pendingDelete = ""
         snapshots = []
         var names = Object.keys(logViews)
         for (var i = 0; i < names.length; i++) {
@@ -183,19 +184,30 @@ Panel {
     }
     function projectRunning(name) { return projects.some(p => p.name === name && p.status === "running") }
     function canRun(action, name) {
-        if (["poweroff", "start", "stop", "restart", "snapshot", "snapshots", "restore", "domains", "browse", "browse-all", "mailpit", "folder"].indexOf(action) < 0) return false
+        if (["poweroff", "start", "stop", "restart", "snapshot", "snapshots", "restore", "domains", "browse", "browse-all", "mailpit", "folder", "commands", "save-command", "delete-command", "custom-command", "delete-snapshot", "snapshot-folder"].indexOf(action) < 0) return false
         if (action === "poweroff") return !busy
         if (projectBusy(name)) return false
-        if (["restart", "snapshot", "restore", "domains", "browse", "browse-all", "mailpit"].indexOf(action) >= 0 && !projectRunning(name)) return false
+        if (["restart", "snapshot", "restore", "domains", "browse", "browse-all", "mailpit", "custom-command"].indexOf(action) >= 0 && !projectRunning(name)) return false
         if (action === "restart") return !containersFor(name).some(c => c.state === "paused")
         return true
     }
+    property string pendingDelete: ""
+    property string deleteLabel: ""
+    property var commandViews: ({})
+    function commandsFor(name) { return commandViews[name] || {items: [], error: ""} }
+    function showCommands(name) {
+        if (isDetail(name, "commands")) { closeDetails(); return }
+        if (projectBusy(name)) return
+        activateDetail(name, "commands")
+        execute("commands", name, "")
+    }
+    function isCommandRead(action) { return ["commands", "save-command", "delete-command"].indexOf(action) >= 0 }
     property string pendingRestore: ""
     property string pendingLabel: ""
     property string query: ""
     onProjectsChanged: {
         if (detailProject && !projectRunning(detailProject)) {
-            if (activeDetail.tab !== "snapshots") closeDetails()
+            if (["snapshots", "commands"].indexOf(activeDetail.tab) < 0) closeDetails()
             pendingRestore = ""
         }
     }
@@ -219,7 +231,7 @@ Panel {
     readonly property color success: "#86c995"
     readonly property color progress: "#e4b76c"
     readonly property color muted: Commons.Color.muted
-    function actionLabelFor(action) { return ({poweroff: "Powering off DDEV", start: "Starting", stop: "Stopping", restart: "Restarting", snapshot: "Creating snapshot", restore: "Restoring database", snapshots: "Loading snapshots", domains: "Loading project domains", "browse-all": "Opening project domains", browse: "Opening browser", mailpit: "Opening Mailpit", folder: "Opening folder"})[action] || "Working" }
+    function actionLabelFor(action) { return ({poweroff: "Powering off DDEV", "custom-command": "Running shortcut", "delete-snapshot": "Deleting snapshot", "snapshot-folder": "Opening snapshot folder", start: "Starting", stop: "Stopping", restart: "Restarting", snapshot: "Creating snapshot", restore: "Restoring database", snapshots: "Loading snapshots", domains: "Loading project domains", "browse-all": "Opening project domains", browse: "Opening browser", mailpit: "Opening Mailpit", folder: "Opening folder"})[action] || "Working" }
     function persistRefresh(value) {
         refreshSeconds = value
         if (!bar || !bar.shell || typeof bar.shell.updateEntryInline !== "function") return
@@ -255,7 +267,7 @@ Panel {
         next[name] = job
         jobs = next
         clockNow = Date.now()
-        if (["snapshots", "domains"].indexOf(action) < 0) updateOutput(name, {text: "", message: "", failed: false, action: action, expanded: false, open: true, dismissed: false})
+        if (["snapshots", "domains"].indexOf(action) < 0 && !isCommandRead(action)) updateOutput(name, {text: "", message: "", failed: false, action: action, expanded: false, open: true, dismissed: false})
         job.running = true
         return true
     }
@@ -270,7 +282,7 @@ Panel {
             job.commandFailed = true
             updateOutput(job.projectName, {failed: true, message: "Command exited without a result (" + exitCode + ")", text: job.capturedOutput, open: true})
         }
-        if (["snapshots", "domains"].indexOf(job.actionName) < 0 || job.commandFailed) {
+        if ((["snapshots", "domains"].indexOf(job.actionName) < 0 && !isCommandRead(job.actionName)) || (job.commandFailed && !isCommandRead(job.actionName))) {
             var failed = job.commandFailed || exitCode !== 0
             updateOutput(job.projectName, {failed: failed, open: failed, expanded: failed,
                 dismissed: failed ? false : !!outputFor(job.projectName).dismissed})
@@ -434,7 +446,11 @@ Panel {
                         }
                         job.receivedResult = true
                         job.commandFailed = !data.ok
-                        if (job.actionName === "domains") {
+                        if (root.isCommandRead(job.actionName)) {
+                            var next = Object.assign({}, root.commandViews)
+                            next[job.projectName] = {items: data.commands || root.commandsFor(job.projectName).items, error: data.ok ? "" : data.message || "Could not load commands"}
+                            root.commandViews = next
+                        } else if (job.actionName === "domains") {
                             root.updateDomains(job.projectName, {items: data.ok ? data.domains || [] : [], error: data.ok ? "" : data.message || "Could not read project domains"})
                         } else if (job.actionName === "snapshots" && data.ok) {
                             if (root.selectedName === job.projectName) {
@@ -442,6 +458,7 @@ Panel {
                                 if (!root.snapshots.some(s => s.path === root.pendingRestore)) root.pendingRestore = ""
                             }
                         } else {
+                            if (job.actionName === "delete-snapshot" && data.ok && root.selectedName === job.projectName) root.snapshots = data.snapshots
                             if (data.message) job.capturedOutput = root.cleanOutput(data.message)
                             root.updateOutput(job.projectName, {text: job.capturedOutput, message: data.ok ? "Completed" : "Command failed", failed: !data.ok, open: true})
                         }
@@ -634,7 +651,7 @@ Panel {
                         readonly property bool hasPaused: serviceContainers.some(c => c.state === "paused")
                         readonly property bool unhealthy: serviceContainers.some(c => c.health === "unhealthy" && c.state === "running")
                         readonly property var consoleState: root.outputFor(modelData.name)
-                        readonly property bool consoleBusy: !!root.jobs[modelData.name] && root.actionFor(modelData.name) !== "snapshots"
+                        readonly property bool consoleBusy: !!root.jobs[modelData.name] && ["snapshots", "domains"].indexOf(root.actionFor(modelData.name)) < 0 && !root.isCommandRead(root.actionFor(modelData.name))
                         required property var modelData
                         readonly property bool busy: root.projectBusy(modelData.name)
                         readonly property bool running: modelData.status === "running"
@@ -746,6 +763,14 @@ Panel {
                                     enabled: selected || !projectRow.busy
                                     onClicked: root.selectProject(projectRow.modelData.name)
                                 }
+                                DetailTab {
+                                    projectName: projectRow.modelData.name; viewName: "commands"
+                                    objectName: "showProjectCommands-" + projectRow.modelData.name
+                                    text: "Commands"; iconText: "󰘳"
+                                    tooltipText: selected ? "Close command shortcuts" : "Project command shortcuts"
+                                    enabled: selected || !projectRow.busy
+                                    onClicked: root.showCommands(projectRow.modelData.name)
+                                }
                                 Rectangle {
                                     Layout.preferredWidth: 1
                                     Layout.preferredHeight: Style.space(20)
@@ -755,16 +780,27 @@ Panel {
                                     color: Util.alpha(root.foreground, 0.2)
                                 }
                                 ToolbarAction {
-                                    objectName: "openProjectMailpit-" + projectRow.modelData.name
-                                    text: "Mailpit"; iconText: "󰇮"; tooltipText: projectRow.running ? "Open Mailpit" : "Start the project first"
-                                    enabled: !projectRow.busy && projectRow.running
-                                    onClicked: root.execute("mailpit", projectRow.modelData.name, "")
-                                }
-                                ToolbarAction {
-                                    objectName: "openProjectFolder-" + projectRow.modelData.name
-                                    text: "Folder"; iconText: "󰉋"; tooltipText: "Open project folder"
-                                    enabled: !projectRow.busy
-                                    onClicked: root.execute("folder", projectRow.modelData.name, "")
+                                    objectName: "openProjectMenu-" + projectRow.modelData.name
+                                    property alias menu: projectOpenMenu
+                                    text: "Open"; iconText: "󰉋"; tooltipText: "Open project folder or Mailpit"
+                                    onClicked: projectOpenMenu.popup()
+                                    Controls.Menu {
+                                        id: projectOpenMenu
+                                        y: parent.height
+                                        padding: Style.space(4)
+                                        background: BorderSurface { color: Commons.Color.background; borderSpec: Border.flat(Util.alpha(root.foreground, 0.3), 1); radius: Style.space(6) }
+                                        ProjectMenuItem {
+                                            objectName: "openProjectFolder-" + projectRow.modelData.name
+                                            text: "Open project folder"; enabled: !projectRow.busy
+                                            onTriggered: root.execute("folder", projectRow.modelData.name, "")
+                                        }
+                                        ProjectMenuItem {
+                                            objectName: "openProjectMailpit-" + projectRow.modelData.name
+                                            text: projectRow.running ? "Open Mailpit" : "Mailpit · start project first"
+                                            enabled: !projectRow.busy && projectRow.running
+                                            onTriggered: root.execute("mailpit", projectRow.modelData.name, "")
+                                        }
+                                    }
                                 }
                                 Item { Layout.fillWidth: true }
                             }
@@ -889,6 +925,69 @@ Panel {
                                 visible: root.selectedName === projectRow.modelData.name || (!projectRow.consoleState.dismissed && (!!projectRow.consoleState.action || !!projectRow.consoleState.message))
                             }
                             Column {
+                                id: commandPanel
+                                width: parent.width; spacing: Style.space(8)
+                                visible: root.isDetail(projectRow.modelData.name, "commands")
+                                property bool editing: false
+                                property bool managing: false
+                                property string editId: ""
+                                property var savedItems: root.commandsFor(projectRow.modelData.name).items
+                                onSavedItemsChanged: if (root.actionFor(projectRow.modelData.name) === "save-command" && !root.commandsFor(projectRow.modelData.name).error) editing = false
+                                RowLayout {
+                                    width: parent.width
+                                    Label { text: "Command shortcuts"; color: Commons.Color.accent; font.bold: true; Layout.fillWidth: true }
+                                    Action { objectName: "manageCommands-" + projectRow.modelData.name; text: commandPanel.managing ? "Done" : "Edit"; enabled: !projectRow.busy; visible: root.commandsFor(projectRow.modelData.name).items.length > 0; onClicked: commandPanel.managing = !commandPanel.managing }
+                                    Action { objectName: "addCommand-" + projectRow.modelData.name; text: "Add"; iconText: "󰐕"; enabled: !projectRow.busy; onClicked: { commandPanel.editId = ""; commandLabel.text = ""; commandValue.text = ""; commandPanel.editing = !commandPanel.editing } }
+                                    IconAction { iconText: "󰑐"; tooltipText: "Reload shortcuts"; enabled: !projectRow.busy; onClicked: root.execute("commands", projectRow.modelData.name, "") }
+                                }
+                                Label { width: parent.width; wrapMode: Text.Wrap; text: "Your shortcuts for this project. Run DDEV commands without leaving the panel."; color: root.muted }
+                                Label { width: parent.width; wrapMode: Text.Wrap; text: root.commandsFor(projectRow.modelData.name).error; visible: text !== ""; color: Commons.Color.urgent }
+                                Label { text: projectRow.busy && root.actionFor(projectRow.modelData.name) === "commands" ? "Loading shortcuts…" : "No shortcuts yet. Add one to get started."; visible: root.commandsFor(projectRow.modelData.name).items.length === 0 }
+                                Flow {
+                                    width: parent.width; spacing: Style.space(6)
+                                    Repeater {
+                                        model: root.isDetail(projectRow.modelData.name, "commands") ? root.commandsFor(projectRow.modelData.name).items : []
+                                        Row {
+                                            required property var modelData
+                                            id: shortcutRow
+                                            spacing: Style.space(3)
+                                            TextMetrics { id: shortcutMetrics; font.family: Style.font.family; font.pixelSize: Style.font.caption; text: shortcutRow.modelData.label; elide: Qt.ElideRight; elideWidth: commandPanel.width - Style.space(commandPanel.managing ? 120 : 48) }
+                                            Action {
+                                                objectName: "runCommand-" + shortcutRow.modelData.id
+                                                width: Math.min(implicitWidth, commandPanel.width - (commandPanel.managing ? Style.space(72) : 0))
+                                                text: shortcutMetrics.elidedText; iconText: "󰐊"
+                                                enabled: projectRow.running && !projectRow.busy
+                                                tooltipText: projectRow.running ? "ddev " + shortcutRow.modelData.command : "Start the project first"
+                                                onClicked: root.execute("custom-command", projectRow.modelData.name, shortcutRow.modelData.id)
+                                            }
+                                            IconAction {
+                                                visible: commandPanel.managing; enabled: !projectRow.busy
+                                                objectName: "editCommand-" + shortcutRow.modelData.id
+                                                iconText: "󰏫"; tooltipText: "Edit shortcut"
+                                                onClicked: { commandPanel.editId = shortcutRow.modelData.id; commandLabel.text = shortcutRow.modelData.label; commandValue.text = shortcutRow.modelData.command; commandPanel.editing = true }
+                                            }
+                                            IconAction {
+                                                objectName: "deleteCommand-" + shortcutRow.modelData.id
+                                                visible: commandPanel.managing; enabled: !projectRow.busy
+                                                iconText: "󰆴"; tooltipText: "Remove shortcut"; foreground: Commons.Color.urgent
+                                                onClicked: root.execute("delete-command", projectRow.modelData.name, shortcutRow.modelData.id)
+                                            }
+                                        }
+                                    }
+                                }
+                                Column {
+                                    width: parent.width; spacing: Style.space(6); visible: commandPanel.editing
+                                    TextField { id: commandLabel; objectName: "commandLabel-" + projectRow.modelData.name; width: parent.width; placeholderText: "Button label, e.g. Clear cache" }
+                                    TextField { id: commandValue; objectName: "commandValue-" + projectRow.modelData.name; width: parent.width; placeholderText: "DDEV command, e.g. drush cr" }
+                                    Label { width: parent.width; wrapMode: Text.Wrap; text: "Enter a DDEV command and arguments. Use quotes for arguments with spaces. Interactive commands and shell pipelines are not supported."; color: root.muted; font.pixelSize: Style.font.caption }
+                                    Row {
+                                        spacing: Style.space(6)
+                                        Action { objectName: "saveCommand-" + projectRow.modelData.name; text: "Save shortcut"; enabled: !projectRow.busy && commandLabel.text.trim() !== "" && commandValue.text.trim() !== ""; onClicked: root.execute("save-command", projectRow.modelData.name, JSON.stringify({id: commandPanel.editId, label: commandLabel.text.trim(), command: commandValue.text.trim()})) }
+                                        Action { text: "Cancel"; onClicked: commandPanel.editing = false }
+                                    }
+                                }
+                            }
+                            Column {
                                 id: snapshotPanel
                                 readonly property var filteredSnapshots: root.snapshots.filter(s => s.name.toLowerCase().includes(snapshotName.text.trim().toLowerCase()))
                                 objectName: "snapshots-" + projectRow.modelData.name
@@ -898,6 +997,7 @@ Panel {
                                 RowLayout {
                                     width: parent.width
                                     Label { text: "Database snapshots"; color: Commons.Color.accent; font.bold: true; Layout.fillWidth: true }
+                                    Action { objectName: "openSnapshotFolder-" + projectRow.modelData.name; text: "Folder"; iconText: "󰉋"; tooltipText: "Open snapshot folder"; enabled: !projectRow.busy; onClicked: root.execute("snapshot-folder", projectRow.modelData.name, "") }
                                     IconAction { iconText: "󰅖"; tooltipText: "Close snapshots"; enabled: !projectRow.busy; onClicked: root.selectProject(projectRow.modelData.name) }
                                 }
                                 RowLayout {
@@ -925,28 +1025,46 @@ Panel {
                                             objectName: "snapshotDetails-" + snapshotRow.modelData.name
                                             anchors.left: parent.left
                                             anchors.leftMargin: Style.space(10)
-                                            anchors.right: restoreSnapshot.left
+                                            anchors.right: snapshotActions.left
                                             anchors.rightMargin: Style.space(12)
                                             anchors.verticalCenter: parent.verticalCenter
                                             spacing: Style.space(3)
                                             Label { width: parent.width; text: snapshotRow.modelData.name; elide: Text.ElideMiddle }
                                             Label { width: parent.width; text: new Date(snapshotRow.modelData.modified * 1000).toLocaleString() + " · " + root.sizeLabel(snapshotRow.modelData.size); elide: Text.ElideRight; color: root.muted; font.pixelSize: Style.font.caption }
                                         }
-                                        Action {
-                                            id: restoreSnapshot
-                                            objectName: "restoreSnapshot-" + snapshotRow.modelData.name
-                                            anchors.right: parent.right
-                                            anchors.rightMargin: Style.space(10)
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            text: "Restore…"
-                                            iconText: "󰕍"
-                                            tooltipText: projectRow.running ? "Restore this snapshot" : "Start the project first"
-                                            enabled: projectRow.running && !projectRow.busy && root.pendingRestore !== snapshotRow.modelData.path
-                                            onClicked: {
-                                                root.pendingRestore = snapshotRow.modelData.path
-                                                root.pendingLabel = snapshotRow.modelData.name
+                                        Row {
+                                            id: snapshotActions
+                                            anchors.right: parent.right; anchors.rightMargin: Style.space(10); anchors.verticalCenter: parent.verticalCenter
+                                            spacing: Style.space(4)
+                                            Action {
+                                                id: restoreSnapshot
+                                                objectName: "restoreSnapshot-" + snapshotRow.modelData.name
+                                                text: "Restore…"
+                                                iconText: "󰕍"
+                                                tooltipText: projectRow.running ? "Restore this snapshot" : "Start the project first"
+                                                enabled: projectRow.running && !projectRow.busy && root.pendingRestore !== snapshotRow.modelData.path
+                                                onClicked: {
+                                                    root.pendingDelete = ""
+                                                    root.pendingRestore = snapshotRow.modelData.path
+                                                    root.pendingLabel = snapshotRow.modelData.name
+                                                }
+                                            }
+                                            IconAction {
+                                                objectName: "deleteSnapshot-" + snapshotRow.modelData.name
+                                                iconText: "󰆴"; foreground: Commons.Color.urgent; tooltipText: "Delete snapshot"
+                                                enabled: !projectRow.busy
+                                                onClicked: { root.pendingRestore = ""; root.pendingDelete = snapshotRow.modelData.path; root.deleteLabel = snapshotRow.modelData.name }
                                             }
                                         }
+                                    }
+                                }
+                                Column {
+                                    width: parent.width; spacing: Style.space(6); visible: root.pendingDelete !== ""
+                                    Label { width: parent.width; wrapMode: Text.Wrap; color: Commons.Color.urgent; text: "Delete snapshot “" + root.deleteLabel + "” from “" + root.selectedName + "”? This permanently removes the snapshot file. The current database is unchanged." }
+                                    Row {
+                                        spacing: Style.space(6)
+                                        Action { objectName: "cancelDeleteSnapshot-" + projectRow.modelData.name; text: "Cancel"; onClicked: root.pendingDelete = "" }
+                                        Action { objectName: "confirmDeleteSnapshot-" + projectRow.modelData.name; text: "Delete snapshot"; iconText: "󰆴"; foreground: Commons.Color.urgent; enabled: !projectRow.busy; onClicked: { var path = root.pendingDelete; root.pendingDelete = ""; root.execute("delete-snapshot", projectRow.modelData.name, path) } }
                                     }
                                 }
                                 Column {
@@ -1055,6 +1173,13 @@ Panel {
         color: root.foreground
         font.family: Style.font.family
         font.pixelSize: Style.font.body
+    }
+    component ProjectMenuItem: Controls.MenuItem {
+        id: menuItem
+        implicitHeight: Style.space(36)
+        implicitWidth: Style.space(230)
+        background: Rectangle { color: menuItem.highlighted ? Util.alpha(Commons.Color.accent, 0.2) : "transparent"; radius: Style.space(4) }
+        contentItem: Label { text: menuItem.text; opacity: menuItem.enabled ? 1 : 0.4; leftPadding: Style.space(8); rightPadding: Style.space(8); verticalAlignment: Text.AlignVCenter }
     }
     component Action: Button {
         id: actionButton

@@ -7,6 +7,8 @@ if action == 'list':
     result = {'ok': True, 'projects': [{'name': n, 'approot': '/example/' + n, 'status': 'running' if n == 'demo' else 'stopped', 'type': 'php'} for n in ('demo', 'stopped')]}
 elif action == 'snapshots':
     result = {'ok': True, 'snapshots': [{'name': 'example.sql.gz', 'path': 'example.sql.gz', 'size': 1024, 'modified': 1700000000}]}
+elif action == 'commands':
+    result = {'ok': True, 'commands': []}
 elif action == 'domains':
     result = {'ok': True, 'domains': [{'url': 'https://demo.example.test', 'host': 'demo.example.test', 'primary': True}, {'url': 'https://admin.example.test', 'host': 'admin.example.test', 'primary': False}]}
 elif action == 'logs-follow':

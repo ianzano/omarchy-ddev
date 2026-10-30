@@ -14,6 +14,7 @@ PREVIEWS = (
     ('applications', PROJECT / 'docs/previews/applications.png'),
     ('logs', PROJECT / 'docs/previews/logs.png'),
     ('domains', PROJECT / 'docs/previews/domains.png'),
+    ('commands', PROJECT / 'docs/previews/commands.png'),
 )
 
 with tempfile.TemporaryDirectory(prefix='omarchy-ddev-preview-') as directory:

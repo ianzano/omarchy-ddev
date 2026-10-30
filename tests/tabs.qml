@@ -12,7 +12,7 @@ ShellRoot {
             test.check(root.testFind("showProjectContainers-demo").selected, "CONTAINERS_TAB_HIGHLIGHTED")
             root.testFind("openProjectLogs-demo").clicked()
             test.check(!root.applicationProject && !root.testFind("showProjectContainers-demo").selected && root.testFind("openProjectLogs-demo").selected, "SWITCH_REPLACES_ACTIVE_TAB_AND_HIGHLIGHT")
-            test.check(!root.testFind("openProjectFolder-demo").selected, "LAUNCH_ACTION_IS_NOT_A_TAB")
+            test.check(!root.testFind("openProjectMenu-demo").selected, "LAUNCH_ACTION_IS_NOT_A_TAB")
         }
     }
     Timer {

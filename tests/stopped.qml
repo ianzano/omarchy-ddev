@@ -8,13 +8,13 @@ ShellRoot {
         interval: 400; running: true
         onTriggered: {
             var root = plugin.item
-            var actions = ["openProjectSite", "openProjectLogs", "showProjectContainers", "openProjectMailpit", "restartProject"]
+            var actions = ["openProjectSite", "openProjectLogs", "showProjectContainers", "restartProject"]
             for (var i = 0; i < actions.length; i++) {
                 var button = root.testFind(actions[i] + "-stopped")
                 test.check(!button.enabled && button.opacity < 0.5 && button.tooltipText === "Start the project first", "STOPPED_ACTION_DISABLED_" + i)
                 test.check(root.testFind(actions[i] + "-demo").enabled, "RUNNING_ACTION_ENABLED_" + i)
             }
-            test.check(root.testFind("openProjectFolder-stopped").enabled && root.testFind("showProjectSnapshots-stopped").enabled, "OFFLINE_ACTIONS_AVAILABLE")
+            test.check(root.testFind("openProjectMenu-stopped").enabled && root.testFind("showProjectSnapshots-stopped").enabled, "OFFLINE_ACTIONS_AVAILABLE")
             for (var action of ["snapshot", "restore", "domains", "browse", "browse-all", "mailpit", "restart"])
                 test.check(!root.execute(action, "stopped", ""), "OFFLINE_EXECUTION_GUARD_" + action)
             root.selectLog("stopped")

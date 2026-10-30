@@ -17,7 +17,7 @@ ShellRoot {
         panel.projects = scene === "overview"
             ? [project("storefront", "running", "php"), project("api-service", "running", "laravel"), project("docs-site", "stopped", "php")]
             : [project("storefront", scene === "console" ? "stopped" : "running", "php"), project("docs-site", "stopped", "php")]
-        if (scene === "applications" || scene === "logs" || scene === "domains") panel.projects = [project("storefront", "running", "php")]
+        if (scene === "applications" || scene === "logs" || scene === "domains" || scene === "commands") panel.projects = [project("storefront", "running", "php")]
         var demoContainers = []
         for (var i = 0; i < panel.projects.length; i++) {
             var application = panel.projects[i]
@@ -33,6 +33,15 @@ ShellRoot {
                 {url: "https://admin.storefront.ddev.site", host: "admin.storefront.ddev.site", primary: false},
                 {url: "https://shop.example.test", host: "shop.example.test", primary: false}
             ], error: ""})
+        }
+        if (scene === "commands") {
+            panel.commandViews = {storefront: {items: [
+                {id: "cache", label: "Clear cache", command: "drush cr"},
+                {id: "tests", label: "Run tests", command: "exec vendor/bin/phpunit"},
+                {id: "assets", label: "Build assets", command: "npm run build"},
+                {id: "migrations", label: "Run migrations", command: "artisan migrate"}
+            ], error: ""}}
+            panel.activateDetail("storefront", "commands")
         }
         if (scene === "applications") panel.activateDetail("storefront", "containers")
         if (scene === "logs") panel.activateDetail("storefront", "logs")
