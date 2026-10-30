@@ -1,0 +1,25 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+.DS_Store
+
+# Local environment and credentials
+.env
+.env.*
+.envrc
+.direnv/
+.ssh/
+.aws/
+*.pem
+*.key
+
+# Runtime configuration, output, and database artifacts
+.ddev/
+db_snapshots/
+shell.json
+shell.json.*
+*.log
+*.qslog
+*.bak
+*.bak.*

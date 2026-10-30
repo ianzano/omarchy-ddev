@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "ianzano.ddev",
+  "name": "DDEV Projects",
+  "version": "1.6.0",
+  "author": "ianzano",
+  "license": "MIT",
+  "description": "Registered DDEV projects, runtime controls, browser shortcuts and database snapshots.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "DDEV Projects",
+    "description": "Manage DDEV projects and database snapshots",
+    "category": "Development",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "refreshIntervalSec": 15
+    },
+    "schema": [
+      {
+        "key": "refreshIntervalSec",
+        "type": "integer",
+        "label": "Refresh interval (seconds)",
+        "min": 5,
+        "max": 300,
+        "defaultValue": 15
+      }
+    ]
+  }
+}
