@@ -39,7 +39,9 @@ ShellRoot {
                 {id: "cache", label: "Clear cache", command: "drush cr"},
                 {id: "tests", label: "Run tests", command: "exec vendor/bin/phpunit"},
                 {id: "assets", label: "Build assets", command: "npm run build"},
-                {id: "migrations", label: "Run migrations", command: "artisan migrate"}
+                {id: "migrations", label: "Run migrations", command: "artisan migrate"},
+                {id: "ddev:cache-clear", label: "cache-clear", command: "cache-clear", source: "ddev", description: "Clear application caches"},
+                {id: "ddev:build-assets", label: "build-assets", command: "build-assets", source: "ddev", description: "Build frontend assets"}
             ], error: ""}}
             panel.activateDetail("storefront", "commands")
         }

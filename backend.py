@@ -152,6 +152,55 @@ def shortcuts(project):
     return data
 
 
+def discovered_commands(project):
+    """Use Usage annotations for names, then let DDEV decide availability."""
+    global_dir = Path(child_environment().get('DDEV_GLOBAL_DIR') or Path.home() / '.ddev')
+    definitions = {}
+    for folder in (global_dir / 'commands', Path(project['approot']) / '.ddev' / 'commands'):
+        if not folder.is_dir():
+            continue
+        for service in sorted(folder.iterdir()):
+            if not service.is_dir() or service.name.startswith('.'):
+                continue
+            for path in sorted(service.iterdir()):
+                if not path.is_file() or path.name.startswith('.') or path.name.endswith('.example'):
+                    continue
+                try:
+                    with path.open(errors='replace') as stream:
+                        header = stream.read(32768)
+                except OSError:
+                    continue
+                usage = re.search(r'^\s*##\s*Usage:\s*(.+)$', header, re.MULTILINE)
+                if not usage:
+                    continue
+                words = usage[1].strip().strip('"\'').split()
+                if not words:
+                    continue
+                name = words[0]
+                if re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9:_-]*', name):
+                    definitions[name] = True
+    if not definitions:
+        return []
+    proc = run(['ddev', 'help', '-j'], cwd=project['approot'])
+    if proc.returncode:
+        raise RuntimeError(proc.stderr.strip() or 'DDEV command discovery failed')
+    raw = next((row.get('raw') for row in records(proc.stdout) if isinstance(row.get('raw'), dict)), None)
+    if raw is None or not isinstance(raw.get('Commands'), list):
+        raise RuntimeError('DDEV returned no command list; refresh Commands')
+    available = {item['Name']: item.get('Description', '') for item in raw['Commands'] if isinstance(item, dict) and isinstance(item.get('Name'), str)}
+    return [{'id': 'ddev:' + name, 'label': name, 'command': name,
+             'description': available[name], 'source': 'ddev'}
+            for name in sorted(definitions, key=str.casefold) if name in available]
+
+
+def command_catalog(project):
+    saved = shortcuts(project)
+    try:
+        return {'ok': True, 'commands': saved + discovered_commands(project)}
+    except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as exc:
+        return {'ok': True, 'commands': saved, 'warning': 'Could not discover DDEV commands: ' + str(exc)}
+
+
 def change_shortcut(project, payload=None, remove=None):
     path = shortcut_file(project)
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -182,7 +231,7 @@ def change_shortcut(project, payload=None, remove=None):
         with os.fdopen(fd, 'w') as stream:
             stream.write(json.dumps(items, indent=2) + '\n')
         temporary.replace(path)
-    return {'ok': True, 'commands': items}
+    return command_catalog(project)
 
 
 def delete_snapshot(project, selected):
@@ -486,7 +535,7 @@ def main(args):
     if not (Path(cwd) / '.ddev' / 'config.yaml').is_file():
         raise ValueError('Project configuration is missing: ' + cwd)
     if action == 'commands':
-        return {'ok': True, 'commands': shortcuts(project)}
+        return command_catalog(project)
     if action in ('save-command', 'delete-command', 'custom-command', 'delete-snapshot'):
         if len(args) != 3:
             raise ValueError('Choose an item from this project')
@@ -498,7 +547,8 @@ def main(args):
             return delete_snapshot(project, args[2])
         if project.get('status') != 'running':
             raise ValueError('Start the project first')
-        item = next((item for item in shortcuts(project) if item['id'] == args[2]), None)
+        candidates = discovered_commands(project) if args[2].startswith('ddev:') else shortcuts(project)
+        item = next((item for item in candidates if item['id'] == args[2]), None)
         if not item:
             raise ValueError('Shortcut no longer exists; reload commands')
         proc = run(['ddev', *shortcut_args(item['command'])], cwd=cwd, timeout=1800, stream=True)

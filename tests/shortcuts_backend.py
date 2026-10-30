@@ -8,11 +8,12 @@ project = sys.argv[2] if len(sys.argv) > 2 else ""
 extra = sys.argv[3:]
 statefile = Path(__file__).with_name('fixture-state.json')
 state = json.loads(statefile.read_text()) if statefile.exists() else {'commands': [], 'snapshots': [{'name': 'before.sql.gz', 'path': '/example/demo/.ddev/db_snapshots/before.sql.gz', 'size': 1024, 'modified': 1700000000}]}
+discovered = [{'id': 'ddev:cache-clear', 'label': 'cache-clear', 'command': 'cache-clear', 'description': 'Clear application cache', 'source': 'ddev'}]
 result = {'ok': True}
 if action == 'list':
     result['projects'] = [{'name': name, 'approot': '/example/' + name, 'status': 'running' if name == 'demo' else 'stopped', 'type': 'php'} for name in ('demo', 'stopped')]
 elif action == 'commands':
-    result['commands'] = state['commands']
+    result['commands'] = state['commands'] + discovered
 elif action == 'save-command':
     item = json.loads(extra[0])
     if not item.get('id'):
@@ -20,10 +21,10 @@ elif action == 'save-command':
         state['commands'].append(item)
     else:
         state['commands'] = [item if c['id'] == item['id'] else c for c in state['commands']]
-    result['commands'] = state['commands']
+    result['commands'] = state['commands'] + discovered
 elif action == 'delete-command':
     state['commands'] = []
-    result['commands'] = []
+    result['commands'] = discovered
 elif action == 'custom-command':
     print(json.dumps({'event': 'output', 'text': 'Example shortcut output\n'}), flush=True)
     time.sleep(0.3)

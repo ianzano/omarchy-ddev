@@ -18,7 +18,8 @@ class ShortcutsTests(unittest.TestCase):
         (self.folder / 'db_snapshots').mkdir(parents=True)
         (self.folder / 'config.yaml').write_text('name: demo\n')
         for mock in (patch.dict(os.environ, {'XDG_CONFIG_HOME': str(self.root / 'config')}),
-                     patch.object(backend, 'projects', return_value=[self.project])):
+                     patch.object(backend, 'projects', return_value=[self.project]),
+                     patch.object(backend, 'discovered_commands', return_value=[])):
             mock.start()
             self.addCleanup(mock.stop)
 

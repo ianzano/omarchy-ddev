@@ -18,7 +18,7 @@ ShellRoot {
         onTriggered: {
             var root = plugin.item
             var toolbar = root.testFind("projectActions-demo")
-            var actionNames = ["openProjectSite-demo", "openProjectLogs-demo", "showProjectContainers-demo", "showProjectSnapshots-demo", "showProjectCommands-demo", "openProjectMenu-demo"]
+            var actionNames = ["openProjectSite-demo", "openProjectLogs-demo", "showProjectContainers-demo", "showProjectSnapshots-demo", "showProjectCommands-demo", "openProjectMailpit-demo", "openProjectFolder-demo"]
             var right = -1
             var top = -1
             for (var a = 0; a < actionNames.length; a++) {

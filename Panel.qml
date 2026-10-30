@@ -448,7 +448,7 @@ Panel {
                         job.commandFailed = !data.ok
                         if (root.isCommandRead(job.actionName)) {
                             var next = Object.assign({}, root.commandViews)
-                            next[job.projectName] = {items: data.commands || root.commandsFor(job.projectName).items, error: data.ok ? "" : data.message || "Could not load commands"}
+                            next[job.projectName] = {items: data.commands || root.commandsFor(job.projectName).items, error: data.ok ? data.warning || "" : data.message || "Could not load commands"}
                             root.commandViews = next
                         } else if (job.actionName === "domains") {
                             root.updateDomains(job.projectName, {items: data.ok ? data.domains || [] : [], error: data.ok ? "" : data.message || "Could not read project domains"})
@@ -491,7 +491,7 @@ Panel {
         bar: root.bar
         open: root.opened
         focusTarget: content
-        contentWidth: panel.fittedContentWidth(Style.space(570))
+        contentWidth: panel.fittedContentWidth(Style.space(650))
         contentHeight: panel.fittedContentHeight(content.implicitHeight, Style.space(680))
         Flickable {
             id: panelScroll
@@ -780,27 +780,16 @@ Panel {
                                     color: Util.alpha(root.foreground, 0.2)
                                 }
                                 ToolbarAction {
-                                    objectName: "openProjectMenu-" + projectRow.modelData.name
-                                    property alias menu: projectOpenMenu
-                                    text: "Open"; iconText: "󰉋"; tooltipText: "Open project folder or Mailpit"
-                                    onClicked: projectOpenMenu.popup()
-                                    Controls.Menu {
-                                        id: projectOpenMenu
-                                        y: parent.height
-                                        padding: Style.space(4)
-                                        background: BorderSurface { color: Commons.Color.background; borderSpec: Border.flat(Util.alpha(root.foreground, 0.3), 1); radius: Style.space(6) }
-                                        ProjectMenuItem {
-                                            objectName: "openProjectFolder-" + projectRow.modelData.name
-                                            text: "Open project folder"; enabled: !projectRow.busy
-                                            onTriggered: root.execute("folder", projectRow.modelData.name, "")
-                                        }
-                                        ProjectMenuItem {
-                                            objectName: "openProjectMailpit-" + projectRow.modelData.name
-                                            text: projectRow.running ? "Open Mailpit" : "Mailpit · start project first"
-                                            enabled: !projectRow.busy && projectRow.running
-                                            onTriggered: root.execute("mailpit", projectRow.modelData.name, "")
-                                        }
-                                    }
+                                    objectName: "openProjectMailpit-" + projectRow.modelData.name
+                                    text: "Mailpit"; iconText: "󰇮"; tooltipText: projectRow.running ? "Open Mailpit" : "Start the project first"
+                                    enabled: !projectRow.busy && projectRow.running
+                                    onClicked: root.execute("mailpit", projectRow.modelData.name, "")
+                                }
+                                ToolbarAction {
+                                    objectName: "openProjectFolder-" + projectRow.modelData.name
+                                    text: "Folder"; iconText: "󰉋"; tooltipText: "Open project folder"
+                                    enabled: !projectRow.busy
+                                    onClicked: root.execute("folder", projectRow.modelData.name, "")
                                 }
                                 Item { Layout.fillWidth: true }
                             }
@@ -931,6 +920,7 @@ Panel {
                                 property bool editing: false
                                 property bool managing: false
                                 property string editId: ""
+                                readonly property var filteredCommands: root.commandsFor(projectRow.modelData.name).items.filter(c => (c.label + " " + c.command + " " + (c.description || "")).toLowerCase().includes(commandFilter.text.trim().toLowerCase()))
                                 property var savedItems: root.commandsFor(projectRow.modelData.name).items
                                 onSavedItemsChanged: if (root.actionFor(projectRow.modelData.name) === "save-command" && !root.commandsFor(projectRow.modelData.name).error) editing = false
                                 RowLayout {
@@ -938,15 +928,16 @@ Panel {
                                     Label { text: "Command shortcuts"; color: Commons.Color.accent; font.bold: true; Layout.fillWidth: true }
                                     Action { objectName: "manageCommands-" + projectRow.modelData.name; text: commandPanel.managing ? "Done" : "Edit"; enabled: !projectRow.busy; visible: root.commandsFor(projectRow.modelData.name).items.length > 0; onClicked: commandPanel.managing = !commandPanel.managing }
                                     Action { objectName: "addCommand-" + projectRow.modelData.name; text: "Add"; iconText: "󰐕"; enabled: !projectRow.busy; onClicked: { commandPanel.editId = ""; commandLabel.text = ""; commandValue.text = ""; commandPanel.editing = !commandPanel.editing } }
-                                    IconAction { iconText: "󰑐"; tooltipText: "Reload shortcuts"; enabled: !projectRow.busy; onClicked: root.execute("commands", projectRow.modelData.name, "") }
+                                    IconAction { iconText: "󰑐"; tooltipText: "Reload DDEV commands and shortcuts"; enabled: !projectRow.busy; onClicked: root.execute("commands", projectRow.modelData.name, "") }
                                 }
-                                Label { width: parent.width; wrapMode: Text.Wrap; text: "Your shortcuts for this project. Run DDEV commands without leaving the panel."; color: root.muted }
+                                Label { width: parent.width; wrapMode: Text.Wrap; text: "Available DDEV commands and your saved shortcuts. Hover for details; Edit lets you customize arguments."; color: root.muted }
                                 Label { width: parent.width; wrapMode: Text.Wrap; text: root.commandsFor(projectRow.modelData.name).error; visible: text !== ""; color: Commons.Color.urgent }
-                                Label { text: projectRow.busy && root.actionFor(projectRow.modelData.name) === "commands" ? "Loading shortcuts…" : "No shortcuts yet. Add one to get started."; visible: root.commandsFor(projectRow.modelData.name).items.length === 0 }
+                                TextField { id: commandFilter; objectName: "commandFilter-" + projectRow.modelData.name; width: parent.width; placeholderText: "Filter commands…" }
+                                Label { objectName: "commandEmpty-" + projectRow.modelData.name; text: projectRow.busy && root.actionFor(projectRow.modelData.name) === "commands" ? "Loading commands…" : root.commandsFor(projectRow.modelData.name).items.length ? "No commands match this search." : "No custom DDEV commands or saved shortcuts found."; visible: commandPanel.filteredCommands.length === 0 }
                                 Flow {
                                     width: parent.width; spacing: Style.space(6)
                                     Repeater {
-                                        model: root.isDetail(projectRow.modelData.name, "commands") ? root.commandsFor(projectRow.modelData.name).items : []
+                                        model: root.isDetail(projectRow.modelData.name, "commands") ? commandPanel.filteredCommands : []
                                         Row {
                                             required property var modelData
                                             id: shortcutRow
@@ -957,18 +948,18 @@ Panel {
                                                 width: Math.min(implicitWidth, commandPanel.width - (commandPanel.managing ? Style.space(72) : 0))
                                                 text: shortcutMetrics.elidedText; iconText: "󰐊"
                                                 enabled: projectRow.running && !projectRow.busy
-                                                tooltipText: projectRow.running ? "ddev " + shortcutRow.modelData.command : "Start the project first"
+                                                tooltipText: projectRow.running ? "ddev " + shortcutRow.modelData.command + (shortcutRow.modelData.description ? " · " + shortcutRow.modelData.description : "") : "Start the project first"
                                                 onClicked: root.execute("custom-command", projectRow.modelData.name, shortcutRow.modelData.id)
                                             }
                                             IconAction {
                                                 visible: commandPanel.managing; enabled: !projectRow.busy
                                                 objectName: "editCommand-" + shortcutRow.modelData.id
-                                                iconText: "󰏫"; tooltipText: "Edit shortcut"
-                                                onClicked: { commandPanel.editId = shortcutRow.modelData.id; commandLabel.text = shortcutRow.modelData.label; commandValue.text = shortcutRow.modelData.command; commandPanel.editing = true }
+                                                iconText: "󰏫"; tooltipText: shortcutRow.modelData.source === "ddev" ? "Create shortcut with arguments" : "Edit shortcut"
+                                                onClicked: { commandPanel.editId = shortcutRow.modelData.source === "ddev" ? "" : shortcutRow.modelData.id; commandLabel.text = shortcutRow.modelData.label; commandValue.text = shortcutRow.modelData.command; commandPanel.editing = true }
                                             }
                                             IconAction {
                                                 objectName: "deleteCommand-" + shortcutRow.modelData.id
-                                                visible: commandPanel.managing; enabled: !projectRow.busy
+                                                visible: commandPanel.managing && shortcutRow.modelData.source !== "ddev"; enabled: !projectRow.busy
                                                 iconText: "󰆴"; tooltipText: "Remove shortcut"; foreground: Commons.Color.urgent
                                                 onClicked: root.execute("delete-command", projectRow.modelData.name, shortcutRow.modelData.id)
                                             }
@@ -1174,13 +1165,6 @@ Panel {
         font.family: Style.font.family
         font.pixelSize: Style.font.body
     }
-    component ProjectMenuItem: Controls.MenuItem {
-        id: menuItem
-        implicitHeight: Style.space(36)
-        implicitWidth: Style.space(230)
-        background: Rectangle { color: menuItem.highlighted ? Util.alpha(Commons.Color.accent, 0.2) : "transparent"; radius: Style.space(4) }
-        contentItem: Label { text: menuItem.text; opacity: menuItem.enabled ? 1 : 0.4; leftPadding: Style.space(8); rightPadding: Style.space(8); verticalAlignment: Text.AlignVCenter }
-    }
     component Action: Button {
         id: actionButton
         focusable: true; bordered: true; fontSize: Style.font.caption; opacity: enabled ? 1 : 0.4
@@ -1212,7 +1196,7 @@ Panel {
         implicitHeight: Style.space(32)
         Layout.minimumWidth: implicitWidth
         Layout.alignment: Qt.AlignVCenter
-        horizontalPadding: Style.space(7)
+        horizontalPadding: Style.space(5)
         verticalPadding: 0
         iconSize: Style.space(14)
     }

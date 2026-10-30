@@ -9,7 +9,10 @@ ShellRoot {
         interval: 700; running: true
         onTriggered: {
             var root = plugin.item
-            test.check(root.isDetail("demo", "commands") && !root.busy, "COMMANDS_TAB_LOADED")
+            test.check(root.isDetail("demo", "commands") && !root.busy && root.testFind("runCommand-ddev:cache-clear"), "DISCOVERED_COMMANDS_SHOWN_WITHOUT_SAVED_SHORTCUTS")
+            root.testFind("commandFilter-demo").text = "UNMATCHED"
+            test.check(root.testFind("commandEmpty-demo").text === "No commands match this search.", "COMMAND_SEARCH_EMPTY_STATE")
+            root.testFind("commandFilter-demo").text = ""
             root.testFind("addCommand-demo").clicked()
             root.testFind("commandLabel-demo").text = "Clear cache"
             root.testFind("commandValue-demo").text = "drush cr"
@@ -20,7 +23,7 @@ ShellRoot {
         interval: 1000; running: true
         onTriggered: {
             var root = plugin.item
-            test.check(root.commandsFor("demo").items.length === 1 && !root.outputFor("demo").action, "SAVE_SHORTCUT_WITHOUT_CONSOLE_NOISE")
+            test.check(root.commandsFor("demo").items.length === 2 && !root.outputFor("demo").action, "SAVE_SHORTCUT_WITHOUT_CONSOLE_NOISE")
             root.testFind("runCommand-shortcut-demo").clicked()
             test.check(root.jobs.demo.actionName === "custom-command", "SHORTCUT_EXECUTED")
         }
@@ -41,7 +44,7 @@ ShellRoot {
         interval: 1800; running: true
         onTriggered: {
             var root = plugin.item
-            test.check(root.commandsFor("demo").items.length === 1 && root.commandsFor("demo").items[0].label === "Rebuild cache", "EDIT_UPDATES_EXISTING_SHORTCUT")
+            test.check(root.commandsFor("demo").items.length === 2 && root.commandsFor("demo").items[0].label === "Rebuild cache", "EDIT_UPDATES_EXISTING_SHORTCUT")
             root.testFind("deleteCommand-shortcut-demo").clicked()
         }
     }
@@ -49,7 +52,7 @@ ShellRoot {
         interval: 2100; running: true
         onTriggered: {
             var root = plugin.item
-            test.check(root.commandsFor("demo").items.length === 0, "REMOVE_SHORTCUT")
+            test.check(root.commandsFor("demo").items.length === 1 && root.testFind("runCommand-ddev:cache-clear"), "REMOVE_SHORTCUT_PRESERVES_DISCOVERED_COMMAND")
             root.selectProject("stopped")
         }
     }
@@ -84,20 +87,17 @@ ShellRoot {
             plugin.item.open()
         }
     }
-    Timer { interval: 3500; running: true; onTriggered: plugin.item.testFind("openProjectMenu-stopped").clicked() }
     Timer {
-        interval: 3700; running: true
+        interval: 3500; running: true
         onTriggered: {
             var root = plugin.item
-            var opener = root.testFind("openProjectMenu-stopped")
-            test.check(opener.menu.visible && opener.menu.itemAt(0).enabled && !opener.menu.itemAt(1).enabled, "OPEN_MENU_OFFLINE_AVAILABILITY")
-            opener.menu.itemAt(0).triggered()
-            opener.menu.close()
-            test.check(root.jobs.stopped.actionName === "folder", "OPEN_MENU_DISPATCHES_FOLDER")
+            test.check(root.testFind("openProjectFolder-stopped").enabled && !root.testFind("openProjectMailpit-stopped").enabled, "SEPARATE_LAUNCH_BUTTONS_OFFLINE_AVAILABILITY")
+            root.testFind("openProjectFolder-stopped").clicked()
+            test.check(root.jobs.stopped.actionName === "folder", "FOLDER_BUTTON_DISPATCHES_ACTION")
         }
     }
     Timer {
-        interval: 4100; running: true
+        interval: 3900; running: true
         onTriggered: {
             test.check(!plugin.item.busy, "FOLDER_ACTION_COMPLETED")
             console.log("SHORTCUTS_CHECKS_PASSED")
