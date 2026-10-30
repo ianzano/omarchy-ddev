@@ -17,6 +17,17 @@ ShellRoot {
         panel.projects = scene === "overview"
             ? [project("storefront", "running", "php"), project("api-service", "running", "laravel"), project("docs-site", "stopped", "php")]
             : [project("storefront", scene === "console" ? "stopped" : "running", "php"), project("docs-site", "stopped", "php")]
+        if (scene === "applications" || scene === "logs") panel.projects = [project("storefront", "running", "php")]
+        var demoContainers = []
+        for (var i = 0; i < panel.projects.length; i++) {
+            var application = panel.projects[i]
+            if (application.status !== "running") continue
+            demoContainers.push({id: "a".repeat(64), project: application.name, service: "web", name: "ddev-" + application.name + "-web", state: "running", health: "healthy", stats: {cpu: "2.5%", memory: "128MiB / 8GiB", network: "24kB / 18kB", disk: "1MB / 4MB", pids: "18"}})
+            demoContainers.push({id: "b".repeat(64), project: application.name, service: "db", name: "ddev-" + application.name + "-db", state: "running", health: "healthy", stats: {cpu: "0.7%", memory: "64MiB / 8GiB", network: "8kB / 12kB", disk: "12MB / 3MB", pids: "9"}})
+        }
+        panel.applyInventory(demoContainers, false)
+        if (scene === "applications") panel.applicationProject = "storefront"
+        if (scene === "logs") panel.updateLog("storefront", {id: "a".repeat(64), service: "web", open: true, live: true, expanded: true, error: "", text: "2026-01-01T12:00:00Z Web server ready\n2026-01-01T12:00:01Z GET / 200\n2026-01-01T12:00:02Z GET /assets/app.css 200\n2026-01-01T12:00:05Z GET /api/products 200"})
         if (scene === "snapshots") {
             panel.selectedName = "storefront"
             panel.snapshots = [

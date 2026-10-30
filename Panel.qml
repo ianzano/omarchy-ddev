@@ -6,6 +6,7 @@ import Quickshell.Io
 import qs.Commons
 import qs.Commons as Commons
 import qs.Ui
+import "Monitoring.js" as Monitoring
 
 Panel {
     id: root
@@ -18,10 +19,78 @@ Panel {
         function close(): void { root.close() }
         function toggle(): void { root.toggle() }
         function refresh(): void { root.refresh() }
-        function status(): string { return JSON.stringify({ projects: root.projects, warning: root.warning, busy: root.busy }) }
+        function status(): string { return JSON.stringify({ projects: root.projects, warning: root.warning, busy: root.busy, containerCount: root.containers.length, eventsConnected: eventWatcher.running, monitorWarning: root.monitorWarning }) }
     }
     property var projects: []
+    property bool projectsLoaded: false
     property var snapshots: []
+    property bool monitoringEnabled: true
+    property bool alertsEnabled: Boolean(setting("alertsEnabled", true))
+    property var containers: []
+    property string applicationProject: ""
+    property string monitorWarning: ""
+    property string eventWarning: ""
+    property var logViews: ({})
+    property var logJobs: ({})
+    function containersFor(name) { return containers.filter(c => c.project === name) }
+    function logFor(name) { return logViews[name] || ({}) }
+    function updateLog(name, patch) {
+        var next = Object.assign({}, logViews)
+        next[name] = Object.assign({}, next[name] || {}, patch)
+        logViews = next
+    }
+    function selectLog(name, container) {
+        if (!container) return
+        updateLog(name, {id: container.id, service: container.service, text: "", error: "", open: true, expanded: false, live: true})
+        refreshLog(name)
+    }
+    function refreshLog(name) {
+        var view = logFor(name)
+        if (!view.id || logJobs[name]) return
+        var reader = logReaderFactory.createObject(root, {
+            projectName: name, containerId: view.id,
+            command: ["python3", bridge, "logs", name, view.id]
+        })
+        if (!reader) return
+        var next = Object.assign({}, logJobs)
+        next[name] = reader
+        logJobs = next
+        reader.running = true
+    }
+    function refreshContainers() {
+        if (!monitoringEnabled || !projectsLoaded || monitor.running) return
+        monitor.command = ["python3", bridge, "monitor"].concat(opened && applicationProject ? ["stats"] : [])
+        monitor.eventVersion = Monitoring.eventVersion
+        monitor.running = true
+    }
+    function showApplications(name) {
+        applicationProject = applicationProject === name ? "" : name
+        if (applicationProject) refreshContainers()
+    }
+    function announce(alerts) {
+        if (!monitoringEnabled || !alertsEnabled) return
+        for (var i = 0; i < alerts.length; i++) {
+            var alert = alerts[i]
+            if (!projects.some(p => p.name === alert.project)) continue
+            Quickshell.execDetached(["notify-send", "--app-name=DDEV Projects", "--urgency=" + (alert.kind === "unhealthy" ? "critical" : "normal"), "--", alert.title, alert.project + " · " + alert.service])
+        }
+    }
+    function applyInventory(items, announceChanges) {
+        containers = items.filter(c => projects.some(p => p.name === c.project))
+        if (announceChanges) announce(Monitoring.inventory(containers, true, projects.map(p => p.name)))
+    }
+    function receiveEvent(event) {
+        if (!projects.some(p => p.name === event.project)) return
+        announce(Monitoring.event(event, true))
+        refreshContainers()
+    }
+    function saveAlerts(value) {
+        alertsEnabled = value
+        var entry = {id: moduleName}
+        for (var key in settings) if (key !== "id") entry[key] = settings[key]
+        entry.alertsEnabled = value
+        if (bar && bar.shell && typeof bar.shell.updateEntryInline === "function") bar.shell.updateEntryInline(moduleName, entry)
+    }
     property string selectedName: ""
     property string warning: ""
     property var jobs: ({})
@@ -37,7 +106,7 @@ Panel {
     function canRun(action, name) {
         if (action === "poweroff") return !busy
         if (projectBusy(name)) return false
-        if (action === "restart") return projects.some(p => p.name === name && p.status === "running")
+        if (action === "restart") return projects.some(p => p.name === name && p.status === "running") && !containersFor(name).some(c => c.state === "paused")
         return true
     }
     property string pendingRestore: ""
@@ -60,7 +129,7 @@ Panel {
     readonly property color success: "#86c995"
     readonly property color progress: "#e4b76c"
     readonly property color muted: Commons.Color.muted
-    function actionLabelFor(action) { return ({poweroff: "Powering off DDEV", start: "Starting", stop: "Stopping", restart: "Restarting", snapshot: "Creating snapshot", restore: "Restoring database", snapshots: "Loading snapshots", browse: "Opening browser", mailpit: "Opening Mailpit", folder: "Opening folder"})[action] || "Working" }
+    function actionLabelFor(action) { return ({poweroff: "Powering off DDEV", start: "Starting", stop: "Stopping", restart: "Restarting", pause: "Pausing container", resume: "Resuming container", snapshot: "Creating snapshot", restore: "Restoring database", snapshots: "Loading snapshots", browse: "Opening browser", mailpit: "Opening Mailpit", folder: "Opening folder"})[action] || "Working" }
     function persistRefresh(value) {
         refreshSeconds = value
         if (!bar || !bar.shell || typeof bar.shell.updateEntryInline !== "function") return
@@ -81,6 +150,7 @@ Panel {
 
     function refresh() {
         if (!listing.running) listing.running = true
+        refreshContainers()
     }
     function execute(action, name, extra) {
         if (!canRun(action, name)) return false
@@ -127,7 +197,19 @@ Panel {
         return bytes >= 1048576 ? (bytes / 1048576).toFixed(1) + " MB" : (bytes / 1024).toFixed(0) + " KB"
     }
     Timer { interval: 1000; running: root.busy; repeat: true; onTriggered: root.clockNow = Date.now() }
-    Component.onCompleted: refresh()
+    Component.onCompleted: { refresh(); if (monitoringEnabled) eventWatcher.running = true }
+    Timer { interval: root.opened && root.applicationProject ? 3000 : 10000; running: root.monitoringEnabled; repeat: true; onTriggered: root.refreshContainers() }
+    Timer { interval: 5000; running: root.monitoringEnabled; repeat: true; onTriggered: if (!eventWatcher.running) eventWatcher.running = true }
+    Timer {
+        interval: 2000; running: root.opened; repeat: true
+        onTriggered: {
+            var names = Object.keys(root.logViews)
+            for (var i = 0; i < names.length; i++) {
+                var view = root.logFor(names[i])
+                if (view.open && view.live) root.refreshLog(names[i])
+            }
+        }
+    }
     onOpenedChanged: if (opened) refresh()
     Timer {
         interval: Math.max(5, root.refreshSeconds) * 1000
@@ -142,12 +224,72 @@ Panel {
             onStreamFinished: {
                 try {
                     var data = JSON.parse(text)
-                    if (data.ok) { root.projects = data.projects; root.warning = data.warning || "" }
+                    if (data.ok) { root.projects = data.projects; root.projectsLoaded = true; root.warning = data.warning || ""; root.refreshContainers() }
                     else root.warning = data.message
                 } catch (error) { root.warning = "Could not read DDEV status: " + error }
             }
         }
         stderr: StdioCollector { onStreamFinished: if (text.trim()) root.warning = text.trim() }
+    }
+    Process {
+        id: monitor
+        property int eventVersion: 0
+        stdout: StdioCollector {
+            onStreamFinished: {
+                try {
+                    var data = JSON.parse(text)
+                    if (data.ok) {
+                        root.monitorWarning = data.warning || ""
+                        root.applyInventory(data.containers || [], monitor.eventVersion === Monitoring.eventVersion)
+                    } else root.monitorWarning = data.message || "Container monitoring is unavailable"
+                } catch (error) { root.monitorWarning = "Could not read container status" }
+            }
+        }
+        stderr: StdioCollector { onStreamFinished: if (text.trim()) root.monitorWarning = text.trim() }
+    }
+    Process {
+        id: eventWatcher
+        command: ["python3", root.bridge, "watch"]
+        stdout: SplitParser {
+            onRead: function(line) {
+                try {
+                    var data = JSON.parse(line)
+                    if (data.event === "container") { root.eventWarning = ""; root.receiveEvent(data) }
+                    else if (data.ok === false) root.eventWarning = data.message
+                } catch (error) { root.eventWarning = "Could not read a Docker event" }
+            }
+        }
+        stderr: StdioCollector { onStreamFinished: if (text.trim()) root.eventWarning = "Docker events disconnected; retrying automatically" }
+        onExited: root.eventWarning = "Docker events disconnected; retrying automatically"
+    }
+    Component {
+        id: logReaderFactory
+        Process {
+            id: reader
+            property string projectName: ""
+            property string containerId: ""
+            property bool received: false
+            stdout: StdioCollector {
+                onStreamFinished: {
+                    try {
+                        var data = JSON.parse(text)
+                        reader.received = true
+                        if (root.logFor(reader.projectName).id === reader.containerId)
+                            root.updateLog(reader.projectName, {text: root.cleanOutput(data.logs || ""), error: data.ok ? "" : data.message || "Logs unavailable"})
+                    } catch (error) {
+                        if (root.logFor(reader.projectName).id === reader.containerId) root.updateLog(reader.projectName, {error: "Could not read container logs"})
+                    }
+                }
+            }
+            stderr: StdioCollector { onStreamFinished: if (text.trim() && root.logFor(reader.projectName).id === reader.containerId) root.updateLog(reader.projectName, {error: text.trim()}) }
+            onExited: {
+                if (!reader.received && root.logFor(reader.projectName).id === reader.containerId) root.updateLog(reader.projectName, {error: "Log reader exited without a result"})
+                var next = Object.assign({}, root.logJobs)
+                delete next[reader.projectName]
+                root.logJobs = next
+                Qt.callLater(function() { reader.destroy() })
+            }
+        }
     }
     Component {
         id: operationFactory
@@ -329,6 +471,21 @@ Panel {
                         onReleased: function(value) { root.persistRefresh(value) }
                     }
                 }
+                Toggle {
+                    visible: root.settingsOpen
+                    width: parent.width
+                    label: "Container alerts"
+                    description: "Stops, unhealthy states, starts, and recovery"
+                    checked: root.alertsEnabled
+                    onClicked: root.saveAlerts(!root.alertsEnabled)
+                }
+                Label {
+                    width: parent.width
+                    visible: root.settingsOpen && root.eventWarning !== ""
+                    text: root.eventWarning
+                    color: root.progress
+                    wrapMode: Text.Wrap
+                }
                 Label {
                     width: parent.width
                     visible: text !== ""
@@ -350,12 +507,15 @@ Panel {
                     Rectangle {
                         id: projectRow
                         objectName: "projectCard-" + modelData.name
+                        readonly property var serviceContainers: root.containersFor(modelData.name)
+                        readonly property bool hasPaused: serviceContainers.some(c => c.state === "paused")
+                        readonly property bool unhealthy: serviceContainers.some(c => c.health === "unhealthy" && c.state === "running")
                         readonly property var consoleState: root.outputFor(modelData.name)
                         readonly property bool consoleBusy: !!root.jobs[modelData.name] && root.actionFor(modelData.name) !== "snapshots"
                         required property var modelData
                         readonly property bool busy: root.projectBusy(modelData.name)
                         readonly property bool running: modelData.status === "running"
-                        readonly property color statusColor: busy ? root.progress : (running ? root.success : (modelData.status === "stopped" ? root.muted : root.progress))
+                        readonly property color statusColor: busy || hasPaused ? root.progress : unhealthy ? Commons.Color.urgent : (running ? root.success : (modelData.status === "stopped" ? root.muted : root.progress))
                         width: content.width
                         implicitHeight: projectContent.implicitHeight + Style.space(24)
                         radius: Style.space(10)
@@ -384,7 +544,7 @@ Panel {
                                     Layout.minimumWidth: 0
                                     spacing: Style.space(2)
                                     Label { Layout.fillWidth: true; elide: Text.ElideRight; text: projectRow.modelData.name; font.bold: true; font.pixelSize: Style.font.subtitle }
-                                    Label { Layout.fillWidth: true; elide: Text.ElideRight; text: projectRow.busy ? root.actionLabelFor(root.actionFor(projectRow.modelData.name)) + "… · " + root.elapsedFor(projectRow.modelData.name) + " s" : (projectRow.running ? "Running" : projectRow.modelData.status === "stopped" ? "Stopped" : projectRow.modelData.status); color: projectRow.statusColor; font.pixelSize: Style.font.caption }
+                                    Label { Layout.fillWidth: true; elide: Text.ElideRight; text: projectRow.busy ? root.actionLabelFor(root.actionFor(projectRow.modelData.name)) + "… · " + root.elapsedFor(projectRow.modelData.name) + " s" : (projectRow.hasPaused ? "Paused services" : projectRow.unhealthy ? "Unhealthy services" : projectRow.running ? "Running" : projectRow.modelData.status === "stopped" ? "Stopped" : projectRow.modelData.status); color: projectRow.statusColor; font.pixelSize: Style.font.caption }
                                 }
                                 Label { text: projectRow.modelData.type; color: root.muted; font.pixelSize: Style.font.caption }
                                 }
@@ -396,7 +556,7 @@ Panel {
                                     anchors.verticalCenter: parent.verticalCenter
                                     iconText: "󰑐"
                                     tooltipText: projectRow.running ? "Restart project" : "Start the project before restarting"
-                                    enabled: !projectRow.busy && projectRow.running
+                                    enabled: !projectRow.busy && projectRow.running && !projectRow.hasPaused
                                     onClicked: root.execute("restart", projectRow.modelData.name, "")
                                 }
                                 ToggleSwitch {
@@ -425,6 +585,122 @@ Panel {
                                 Item { Layout.fillWidth: true }
                                 IconAction { iconText: "󰇮"; tooltipText: "Open Mailpit"; enabled: !projectRow.busy && projectRow.running; onClicked: root.execute("mailpit", projectRow.modelData.name, "") }
                                 IconAction { iconText: "󰉋"; tooltipText: "Open project folder"; enabled: !projectRow.busy; onClicked: root.execute("folder", projectRow.modelData.name, "") }
+                            }
+                            RowLayout {
+                                width: parent.width
+                                spacing: Style.space(6)
+                                Action {
+                                    text: "Applications"; iconText: "󰡨"
+                                    selected: root.applicationProject === projectRow.modelData.name
+                                    onClicked: root.showApplications(projectRow.modelData.name)
+                                }
+                                Action {
+                                    text: "Logs"; iconText: "󰆍"
+                                    enabled: projectRow.serviceContainers.length > 0
+                                    onClicked: root.selectLog(projectRow.modelData.name, projectRow.serviceContainers.find(c => c.service === "web") || projectRow.serviceContainers[0])
+                                }
+                                Label {
+                                    Layout.fillWidth: true; elide: Text.ElideRight
+                                    text: projectRow.serviceContainers.length + " containers"
+                                    color: root.muted; font.pixelSize: Style.font.caption
+                                }
+                            }
+                            Column {
+                                objectName: "applications-" + projectRow.modelData.name
+                                width: parent.width
+                                spacing: Style.space(8)
+                                visible: root.applicationProject === projectRow.modelData.name
+                                Label { text: "Applications & live stats"; font.bold: true }
+                                Label { width: parent.width; text: projectRow.modelData.primary_url || ""; elide: Text.ElideMiddle; visible: text !== ""; color: root.muted; font.pixelSize: Style.font.caption }
+                                Label { width: parent.width; text: root.monitorWarning; visible: text !== ""; wrapMode: Text.Wrap; color: root.progress }
+                                Label { text: "No containers found. Start the project to create them."; visible: projectRow.serviceContainers.length === 0; width: parent.width; wrapMode: Text.Wrap; color: root.muted }
+                                Repeater {
+                                    model: projectRow.serviceContainers
+                                    Rectangle {
+                                        id: serviceRow
+                                        required property var modelData
+                                        width: parent.width
+                                        implicitHeight: serviceContent.implicitHeight + Style.space(20)
+                                        radius: Style.space(6)
+                                        color: Util.alpha(root.foreground, 0.035)
+                                        border.width: 1
+                                        border.color: Util.alpha(modelData.health === "unhealthy" ? Commons.Color.urgent : root.foreground, 0.18)
+                                        Column {
+                                            id: serviceContent
+                                            anchors { left: parent.left; right: parent.right; top: parent.top; margins: Style.space(10) }
+                                            spacing: Style.space(6)
+                                            RowLayout {
+                                                width: parent.width
+                                                ColumnLayout {
+                                                    Layout.fillWidth: true; Layout.minimumWidth: 0
+                                                    Label { text: serviceRow.modelData.service; font.bold: true; Layout.fillWidth: true; elide: Text.ElideRight }
+                                                    Label { text: serviceRow.modelData.state + (serviceRow.modelData.health ? " · " + serviceRow.modelData.health : ""); color: serviceRow.modelData.health === "unhealthy" ? Commons.Color.urgent : root.muted; font.pixelSize: Style.font.caption }
+                                                }
+                                                IconAction { iconText: "󰆍"; tooltipText: "View container logs"; onClicked: root.selectLog(projectRow.modelData.name, serviceRow.modelData) }
+                                                Action {
+                                                    objectName: "pauseContainer-" + serviceRow.modelData.id
+                                                    text: serviceRow.modelData.state === "paused" ? "Resume" : "Pause"
+                                                    iconText: serviceRow.modelData.state === "paused" ? "󰐊" : "󰏤"
+                                                    enabled: !projectRow.busy && (serviceRow.modelData.state === "running" || serviceRow.modelData.state === "paused")
+                                                    onClicked: root.execute(serviceRow.modelData.state === "paused" ? "resume" : "pause", projectRow.modelData.name, serviceRow.modelData.id)
+                                                }
+                                            }
+                                            Label {
+                                                width: parent.width; wrapMode: Text.Wrap
+                                                text: serviceRow.modelData.stats ? "CPU " + serviceRow.modelData.stats.cpu + " · RAM " + serviceRow.modelData.stats.memory : serviceRow.modelData.state === "paused" ? "Processes frozen · statistics unavailable" : serviceRow.modelData.state === "running" ? "Waiting for live statistics…" : "Statistics unavailable while stopped"
+                                                color: root.muted; font.pixelSize: Style.font.caption
+                                            }
+                                            Label {
+                                                width: parent.width; wrapMode: Text.Wrap
+                                                visible: !!serviceRow.modelData.stats
+                                                text: serviceRow.modelData.stats ? "Network " + serviceRow.modelData.stats.network + " · Disk " + serviceRow.modelData.stats.disk + " · " + serviceRow.modelData.stats.pids + " PIDs" : ""
+                                                color: root.muted; font.pixelSize: Style.font.caption
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Column {
+                                width: parent.width
+                                spacing: Style.space(8)
+                                visible: !!root.logFor(projectRow.modelData.name).open
+                                RowLayout {
+                                    width: parent.width
+                                    Label { text: "Logs · " + (root.logFor(projectRow.modelData.name).service || ""); Layout.fillWidth: true; elide: Text.ElideRight; font.bold: true }
+                                    Action { text: "Live"; selected: !!root.logFor(projectRow.modelData.name).live; onClicked: root.updateLog(projectRow.modelData.name, {live: !root.logFor(projectRow.modelData.name).live}) }
+                                    IconAction { iconText: "󰑐"; tooltipText: "Refresh logs"; enabled: !root.logJobs[projectRow.modelData.name]; onClicked: root.refreshLog(projectRow.modelData.name) }
+                                    IconAction { iconText: "󰅖"; tooltipText: "Close log viewer"; onClicked: root.updateLog(projectRow.modelData.name, {open: false}) }
+                                }
+                                Flow {
+                                    width: parent.width
+                                    spacing: Style.space(4)
+                                    Repeater {
+                                        model: projectRow.serviceContainers
+                                        Action {
+                                            required property var modelData
+                                            text: modelData.service
+                                            selected: root.logFor(projectRow.modelData.name).id === modelData.id
+                                            onClicked: root.selectLog(projectRow.modelData.name, modelData)
+                                        }
+                                    }
+                                }
+                                Label { width: parent.width; wrapMode: Text.Wrap; visible: text !== ""; text: root.logFor(projectRow.modelData.name).error || ""; color: Commons.Color.urgent }
+                                Controls.TextArea {
+                                    objectName: "containerLogs-" + projectRow.modelData.name
+                                    width: parent.width
+                                    text: {
+                                        var view = root.logFor(projectRow.modelData.name)
+                                        return view.text ? view.expanded ? view.text : root.previewOutput(view.text) : root.logJobs[projectRow.modelData.name] ? "Loading container logs…" : "No log output."
+                                    }
+                                    readOnly: true; selectByMouse: true; wrapMode: TextEdit.Wrap; textFormat: TextEdit.PlainText
+                                    color: root.foreground; font.family: "monospace"; font.pixelSize: Style.font.caption
+                                    background: Rectangle { color: Util.alpha(Commons.Color.background, 0.65); radius: Style.space(6) }
+                                }
+                                RowLayout {
+                                    width: parent.width
+                                    Label { text: "Last 200 lines · live refresh every 2 s"; color: root.muted; font.pixelSize: Style.font.caption; Layout.fillWidth: true; wrapMode: Text.Wrap }
+                                    Action { text: root.logFor(projectRow.modelData.name).expanded ? "Show less" : "Show all logs"; onClicked: root.updateLog(projectRow.modelData.name, {expanded: !root.logFor(projectRow.modelData.name).expanded}) }
+                                }
                             }
                             Rectangle {
                                 width: parent.width

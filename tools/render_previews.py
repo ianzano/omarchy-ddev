@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Render the real QML panel with synthetic data, without accessing a desktop."""
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import tempfile
@@ -10,6 +11,8 @@ PREVIEWS = (
     ('overview', PROJECT / 'preview.png'),
     ('snapshots', PROJECT / 'docs/previews/snapshots.png'),
     ('console', PROJECT / 'docs/previews/console.png'),
+    ('applications', PROJECT / 'docs/previews/applications.png'),
+    ('logs', PROJECT / 'docs/previews/logs.png'),
 )
 
 with tempfile.TemporaryDirectory(prefix='omarchy-ddev-preview-') as directory:
@@ -20,6 +23,8 @@ with tempfile.TemporaryDirectory(prefix='omarchy-ddev-preview-') as directory:
     (root / 'runtime').mkdir(mode=0o700)
     (root / 'home').mkdir()
     source = (PROJECT / 'Panel.qml').read_text()
+    source = source.replace('property bool monitoringEnabled: true', 'property bool monitoringEnabled: false')
+    shutil.copy2(PROJECT / 'Monitoring.js', root / 'plugin/Monitoring.js')
     # Keep the actual panel content. Replace only its native layer-shell host
     # so it can render headlessly into an isolated Qt window.
     source = source.replace('    id: root\n', '''    id: root

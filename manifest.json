@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "ianzano.ddev",
   "name": "DDEV Projects",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "author": "ianzano",
   "license": "MIT",
-  "description": "Registered DDEV projects, runtime controls, browser shortcuts and database snapshots.",
+  "description": "DDEV projects, container logs, live statistics, pause/resume, alerts, and database snapshots.",
   "kinds": [
     "bar-widget"
   ],
@@ -19,7 +19,8 @@
     "allowMultiple": false,
     "defaultSection": "right",
     "defaults": {
-      "refreshIntervalSec": 15
+      "refreshIntervalSec": 15,
+      "alertsEnabled": true
     },
     "schema": [
       {
@@ -29,6 +30,12 @@
         "min": 5,
         "max": 300,
         "defaultValue": 15
+      },
+      {
+        "key": "alertsEnabled",
+        "type": "boolean",
+        "label": "Container status alerts",
+        "defaultValue": true
       }
     ]
   }

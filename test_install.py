@@ -29,6 +29,7 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(json.loads((plugin / 'manifest.json').read_text())['id'], 'ianzano.ddev')
         self.assertTrue((plugin / 'Panel.qml').is_file())
         self.assertTrue((plugin / 'backend.py').is_file())
+        self.assertTrue((plugin / 'Monitoring.js').is_file())
         self.assertEqual(config['bar']['layout']['right'][1]['id'], 'ianzano.ddev')
 
     def test_reinstall_preserves_placement_settings_and_other_config(self):
