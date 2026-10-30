@@ -40,7 +40,10 @@ Panel {
         logViews = next
     }
     function selectLog(name) {
-        updateLog(name, {text: "", error: "", open: true, expanded: false, live: true})
+        var view = logFor(name)
+        // Opening an existing viewer must not clear a still-running stream.
+        updateLog(name, {open: true, expanded: view.expanded === undefined ? false : view.expanded,
+            live: view.live === undefined ? true : view.live})
         refreshLog(name)
     }
     function logSignature(name) { return containersFor(name).map(c => c.id).sort().join(",") }
@@ -58,7 +61,12 @@ Panel {
     }
     function refreshLog(name) {
         var view = logFor(name)
-        if (!view.open || logJobs[name]) return
+        if (!view.open) return
+        if (logJobs[name]) {
+            // A close/reopen can arrive before the previous reader exits.
+            if (logJobs[name].cancelled) logJobs[name].restartRequested = true
+            return
+        }
         var follow = opened && view.live
         var reader = logReaderFactory.createObject(root, {
             projectName: name, following: follow, signature: logSignature(name),
@@ -68,7 +76,7 @@ Panel {
         var next = Object.assign({}, logJobs)
         next[name] = reader
         logJobs = next
-        if (follow) updateLog(name, {text: "", error: "", notice: ""})
+        if (follow) updateLog(name, {error: "", notice: ""})
         reader.running = true
     }
     function refreshContainers() {
@@ -645,7 +653,9 @@ Panel {
                                     onClicked: root.showApplications(projectRow.modelData.name)
                                 }
                                 Action {
+                                    objectName: "openProjectLogs-" + projectRow.modelData.name
                                     text: "Logs"; iconText: "󰆍"
+                                    selected: !!root.logFor(projectRow.modelData.name).open
                                     enabled: true
                                     onClicked: root.selectLog(projectRow.modelData.name)
                                 }
@@ -709,7 +719,7 @@ Panel {
                                     Label { text: "Project logs"; Layout.fillWidth: true; elide: Text.ElideRight; font.bold: true }
                                     Action { text: "Live"; selected: !!root.logFor(projectRow.modelData.name).live; onClicked: root.setLogLive(projectRow.modelData.name, !root.logFor(projectRow.modelData.name).live) }
                                     IconAction { iconText: "󰑐"; tooltipText: "Refresh logs"; onClicked: root.stopLog(projectRow.modelData.name, true) }
-                                    IconAction { iconText: "󰅖"; tooltipText: "Close log viewer"; onClicked: { root.updateLog(projectRow.modelData.name, {open: false}); root.stopLog(projectRow.modelData.name, false) } }
+                                    IconAction { objectName: "closeProjectLogs-" + projectRow.modelData.name; iconText: "󰅖"; tooltipText: "Close log viewer"; onClicked: { root.updateLog(projectRow.modelData.name, {open: false}); root.stopLog(projectRow.modelData.name, false) } }
                                 }
                                 Label { width: parent.width; wrapMode: Text.Wrap; visible: text !== ""; text: root.logFor(projectRow.modelData.name).error || ""; color: Commons.Color.urgent }
                                 Controls.TextArea {
