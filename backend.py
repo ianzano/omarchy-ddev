@@ -174,17 +174,6 @@ def containers(entries, include_stats=False):
     return sorted(result, key=lambda row: (row['project'], row['service'])), stats_warning
 
 
-def selected_container(entries, project, container_id):
-    if not re.fullmatch(r'[a-f0-9]{12,64}', container_id):
-        raise ValueError('Choose a container from this project')
-    inventory, _ = containers(entries)
-    container = next((item for item in inventory
-                      if item['project'] == project and item['id'] == container_id), None)
-    if not container:
-        raise ValueError('Container is no longer part of this registered DDEV project; refresh the list')
-    return container
-
-
 def container_event(event):
     """Reduce Docker events to project/service state, without exporting labels."""
     if event.get('Type', 'container') != 'container':
@@ -387,6 +376,8 @@ def browse_domains(project, selected=None, all_domains=False):
 
 def main(args):
     action = args[0] if args else 'list'
+    if action not in {'list', 'monitor', 'watch', 'poweroff', 'logs', 'logs-follow', 'domains', 'browse', 'browse-all', 'snapshots', 'snapshot', 'restore', 'mailpit', 'folder', 'start', 'stop', 'restart'}:
+        raise ValueError('Unsupported action')
     if action == 'poweroff':
         proc = run(['ddev', 'poweroff'], timeout=1800, stream=True)
         output = (proc.stdout + '\n' + proc.stderr).strip()
@@ -418,17 +409,6 @@ def main(args):
         if len(args) != 2:
             raise ValueError('Project logs do not take a container ID')
         return follow_project_logs(entries, project) if action == 'logs-follow' else project_logs(entries, project)
-    if action in ('pause', 'resume'):
-        if len(args) != 3:
-            raise ValueError('Choose a container from this project')
-        container = selected_container(entries, project['name'], args[2])
-        if action == 'pause' and container['state'] != 'running':
-            raise ValueError('Only a running container can be paused')
-        if action == 'resume' and container['state'] != 'paused':
-            raise ValueError('Only a paused container can be resumed')
-        command = 'pause' if action == 'pause' else 'unpause'
-        proc = run(['docker', command, container['id']], timeout=30, stream=True)
-        return {'ok': proc.returncode == 0, 'message': (proc.stdout + proc.stderr).strip() or 'Done'}
     if action == 'domains':
         return {'ok': True, 'domains': project_domains(project)}
     if action in ('browse', 'browse-all'):

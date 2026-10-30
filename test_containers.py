@@ -65,7 +65,7 @@ class InventoryTests(unittest.TestCase):
         self.assertEqual([row['id'] for row in result], [CID])
 
 
-class ContainerActionsTests(unittest.TestCase):
+class ProjectLogTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -77,35 +77,13 @@ class ContainerActionsTests(unittest.TestCase):
         project_patch.start()
         self.addCleanup(project_patch.stop)
 
-    def test_pause_validated_running_container(self):
-        with patch.object(backend, 'containers', return_value=([container()], '')), patch.object(backend, 'run', return_value=completed('paused')) as run:
-            self.assertTrue(backend.main(['pause', 'demo', CID])['ok'])
-            self.assertEqual(run.call_args.args[0], ['docker', 'pause', CID])
-
-    def test_resume_only_paused_container(self):
-        with patch.object(backend, 'containers', return_value=([container(state='paused')], '')), patch.object(backend, 'run', return_value=completed('resumed')) as run:
-            self.assertTrue(backend.main(['resume', 'demo', CID])['ok'])
-            self.assertEqual(run.call_args.args[0], ['docker', 'unpause', CID])
-
-    def test_wrong_project_container_is_rejected_without_mutation(self):
-        with patch.object(backend, 'containers', return_value=([container(project='other')], '')), patch.object(backend, 'run') as run:
-            for action in ('pause', 'resume', 'logs'):
-                with self.assertRaises(ValueError):
-                    backend.main([action, 'demo', CID])
-            run.assert_not_called()
-
-    def test_invalid_container_id_cannot_be_a_docker_flag(self):
+    def test_removed_container_actions_are_rejected_without_subprocesses(self):
         with patch.object(backend, 'run') as run:
-            with self.assertRaises(ValueError):
-                backend.main(['pause', 'demo', '--all'])
-            run.assert_not_called()
-
-    def test_invalid_pause_and_resume_states_are_rejected(self):
-        for action, state in (('pause', 'paused'), ('pause', 'exited'), ('resume', 'running'), ('resume', 'exited')):
-            with self.subTest(action=action, state=state), patch.object(backend, 'containers', return_value=([container(state=state)], '')), patch.object(backend, 'run') as run:
-                with self.assertRaises(ValueError):
+            for action in ('pause', 'resume'):
+                with self.assertRaisesRegex(ValueError, 'Unsupported action'):
                     backend.main([action, 'demo', CID])
-                run.assert_not_called()
+            run.assert_not_called()
+            backend.projects.assert_not_called()
 
     def test_project_logs_merge_services_in_timestamp_order(self):
         web = container()

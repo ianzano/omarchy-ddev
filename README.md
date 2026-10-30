@@ -11,7 +11,7 @@ Native Quickshell taskbar plugin. Click the Docker icon and running/registered c
 
 ![Project startup progress with a spinner and inline console output](docs/previews/console.png)
 
-![Compact container overview with health, live statistics, and pause controls](docs/previews/applications.png)
+![Read-only container overview with health and live statistics](docs/previews/applications.png)
 
 ![Combined live project logs with service prefixes](docs/previews/logs.png)
 
@@ -26,7 +26,6 @@ Previews render the actual plugin interface with fictional projects, paths, snap
 - Project actions share one left-aligned row: Domains, Logs, Containers, Snapshots, Mailpit, and Folder, all with labels.
 - Filter by project name or path.
 - Compact container overview with health, CPU and memory; additional metrics on hover.
-- Pause/resume individual container processes, with controls scoped to registered DDEV projects.
 - View combined live project logs inline, with service labels and no need to switch containers.
 - Receive one desktop notification per project transition: started, restarted, stopped, unhealthy, or recovered.
 - Show local database snapshots with timestamps and sizes; create automatically named or custom named snapshots.
@@ -70,13 +69,11 @@ For manual installs, pull the repository and run `python3 install.py` again.
 **Domains** lists the concrete site URLs reported by `ddev describe -j`, including configured `additional_hostnames` and `additional_fqdns` ([DDEV reference](https://docs.ddev.com/en/stable/users/extend/additional-hostnames/)). Open an individual domain or choose **Open all** to launch one browser tab per domain. The configured primary URL is listed first; other domains prefer HTTPS. HTTP/HTTPS duplicates and incidental loopback endpoints are omitted. Wildcard hosts are not opened literally. Opening a link rechecks it against DDEV's current domain list; it does not accept arbitrary URLs. Refresh or close/reopen the section after changing project domains.
 
 
-**Containers** expands a compact overview of the services belonging to a DDEV project. Each row shows the service, status/health, CPU and memory, with a small pause/resume control. Hover over the metrics for the memory limit, network I/O, disk I/O, and process count. Statistics update about every three seconds while the overview is open. Paused and stopped containers show unavailable statistics rather than misleading zero values.
-
-Use **Pause** or **Resume** on a service to freeze/unfreeze its processes with Docker. This preserves the container and its memory; it is different from stopping a project. Restart is disabled while any service is paused. Other projects can still run operations concurrently.
+**Containers** expands a compact overview of the services belonging to a DDEV project. Each read-only row shows the service, status/health, CPU and memory. Start, Stop, and Restart remain project-level controls. Hover over the metrics for the memory limit, network I/O, disk I/O, and process count. Statistics update about every three seconds while the overview is open. Paused and stopped containers show unavailable statistics rather than misleading zero values.
 
 **Logs** opens one combined project log. Clicking it again closes the viewer and stops its followers. Reopening preserves the output, expansion, and Live setting; rapid toggles reuse or restart the reader without creating duplicate followers. **Live** follows all discovered DDEV service feeds using `ddev logs --follow --service=<service> --tail=200 --time`, merging their stdout/stderr with `[web]`, `[db]`, and other service prefixes. A plain `ddev logs -f` follows only the web service by default ([DDEV reference](https://docs.ddev.com/en/stable/users/usage/commands/#logs)). Recent output is bounded to 24,000 characters; the non-live snapshot merges the latest 200 lines in timestamp order. Use **Show all logs** to expand within the panel's single scroll area. Following logs does not lock project actions. Turning Live off, closing the viewer, or closing the panel stops its follower processes; reopening or container recreation reconnects the stream.
 
-**Project alerts** in settings toggles desktop notifications. Container events are coalesced after a two-second quiet period into one project-level state, so starting or stopping web and database containers produces one project notification. Plugin-managed lifecycle operations suppress intermediate alerts until the operation finishes and the project is ready. Recovery is announced when all affected services are healthy again. Initial discovery is silent; repeated project states are deduplicated across displays. Pause/resume does not produce stop/start alerts. Events reconnect automatically when Docker returns; background inventory checks provide a fallback. Idle checks run about every ten seconds; live statistics are collected only while Containers is open. Monitoring covers containers labelled `com.ddev.site-name` for registered projects; shared DDEV infrastructure and services that omit DDEV labels are excluded.
+**Project alerts** in settings toggles desktop notifications. Container events are coalesced after a two-second quiet period into one project-level state, so starting or stopping web and database containers produces one project notification. Plugin-managed lifecycle operations suppress intermediate alerts until the operation finishes and the project is ready. Recovery is announced when all affected services are healthy again. Initial discovery is silent; repeated project states are deduplicated across displays. Externally suspended services do not produce stop/start alerts. Events reconnect automatically when Docker returns; background inventory checks provide a fallback. Idle checks run about every ten seconds; live statistics are collected only while Containers is open. Monitoring covers containers labelled `com.ddev.site-name` for registered projects; shared DDEV infrastructure and services that omit DDEV labels are excluded.
 
 Click Snapshots on a project to expand its database controls directly inside that project’s card. Create accepts an optional name using letters, numbers, dots, underscores, and dashes. Snapshot discovery supports `.gz`, `.zst`, `.mbstream`, and `.xbstream` files, including symlinked `.ddev` directories. The list shows snapshots in the selected project's `.ddev/db_snapshots`; snapshots in other Git worktrees are not included.
 
@@ -110,7 +107,7 @@ For a manual installation, remove the `ianzano.ddev` entry from the bar layout i
 
 Backend tests verify output arrives before a command finishes, merged stderr, Unicode, command exit codes, streaming timeouts, safe stop arguments, command failures, invalid names, unregistered projects, restore path validation, symlinked project config, and unavailable Docker status. The QML component was loaded using the installed Quickshell runtime. No live start/stop, snapshot creation, or database restore is needed for these checks.
 
-Container tests verify Docker label scoping, pause/resume state guards, bounded logs, stats failures, and safe event parsing. Inline UI checks with simulated projects verify log viewing, pause/resume, alert transitions and deduplication, plus card ownership for snapshots and console output, live streaming, six-line previews, full expansion, and separate logs across projects.
+Container tests verify Docker label scoping, bounded logs, stats failures, and safe event parsing. Inline UI checks with simulated projects verify read-only container status, log viewing, alert transitions and deduplication, plus card ownership for snapshots and console output, live streaming, six-line previews, full expansion, and separate logs across projects.
 
 ## Local data
 

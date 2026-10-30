@@ -64,7 +64,7 @@ ShellRoot {
             root.flushAlerts()
             test.check(root.testAlerts.length === 4, "PROJECT_ALERTS_DEDUPLICATED_AND_SCOPED")
             root.selectLog("demo")
-            test.check(root.execute("pause", "demo", test.cid), "PAUSE_ACCEPTED_WITH_PROJECT_LOG_STREAM_ACTIVE")
+            test.check(root.execute("folder", "demo", ""), "PROJECT_ACTION_ACCEPTED_WITH_LOG_STREAM_ACTIVE")
         }
     }
     Timer {
@@ -76,7 +76,7 @@ ShellRoot {
             root.setLogLive("demo", false)
             root.applyInventory(test.inventory("paused", "healthy"), true)
             root.flushAlerts()
-            test.check(root.testAlerts.length === 4, "PAUSE_IS_NOT_A_STOP_ALERT")
+            test.check(root.testAlerts.length === 4, "EXTERNAL_SUSPENSION_IS_NOT_A_STOP_ALERT")
             test.check(!root.canRun("restart", "demo"), "RESTART_BLOCKED_WHILE_PAUSED")
             root.updateLog("demo", {expanded: true})
         }
@@ -85,22 +85,21 @@ ShellRoot {
         interval: 1500; running: true
         onTriggered: {
             var root = plugin.item
-            var pauseButton = root.testFind("pauseContainer-" + test.cid)
-            test.check(!!pauseButton && pauseButton.tooltipText === "Resume container" && pauseButton.enabled, "PAUSED_CONTAINER_SHOWS_RESUME")
-            test.check(pauseButton.parent.parent.implicitHeight <= Style.space(48), "CONTAINER_OVERVIEW_IS_COMPACT")
+            test.check(!root.testFind("pauseContainer-" + test.cid), "NO_PER_CONTAINER_MUTATION_CONTROL")
+            test.check(!root.canRun("pause", "demo") && !root.canRun("resume", "demo"), "REMOVED_ACTIONS_REJECTED_BY_UI")
+            test.check(root.testFind("containerOverview-" + test.cid).implicitHeight <= Style.space(40), "READ_ONLY_CONTAINER_OVERVIEW_IS_COMPACT")
             test.check(root.testFind("projectLogs-demo").text.indexOf("[db]") >= 0, "INLINE_PROJECT_LOG_VIEWER_RENDERED")
             test.check(!root.logJobs.demo && !root.logFor("demo").error, "STOPPING_LIVE_LOGS_CLEANS_UP_READER")
-            pauseButton.clicked()
         }
     }
     Timer {
         interval: 2300; running: true
         onTriggered: {
             var root = plugin.item
-            test.check(!root.busy && root.outputFor("demo").action === "resume", "RESUME_COMMAND_COMPLETED")
+            test.check(!root.busy && root.outputFor("demo").action === "folder", "PROJECT_ACTION_COMPLETED")
             root.applyInventory(test.inventory("running", "healthy"), true)
             root.flushAlerts()
-            test.check(root.testAlerts.length === 4, "RESUME_IS_NOT_A_START_ALERT")
+            test.check(root.testAlerts.length === 4, "EXTERNAL_RECOVERY_IS_NOT_A_START_ALERT")
             root.applyInventory([], true)
             root.flushAlerts()
             test.check(root.testAlerts.length === 5 && root.testAlerts[4].kind === "stopped", "MISSING_CONTAINERS_ONE_PROJECT_STOP_ALERT")

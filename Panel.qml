@@ -155,6 +155,7 @@ Panel {
         return job ? Math.max(0, Math.floor((clockNow - job.startedAt) / 1000)) : 0
     }
     function canRun(action, name) {
+        if (["poweroff", "start", "stop", "restart", "snapshot", "snapshots", "restore", "domains", "browse", "browse-all", "mailpit", "folder"].indexOf(action) < 0) return false
         if (action === "poweroff") return !busy
         if (projectBusy(name)) return false
         if (action === "restart") return projects.some(p => p.name === name && p.status === "running") && !containersFor(name).some(c => c.state === "paused")
@@ -180,7 +181,7 @@ Panel {
     readonly property color success: "#86c995"
     readonly property color progress: "#e4b76c"
     readonly property color muted: Commons.Color.muted
-    function actionLabelFor(action) { return ({poweroff: "Powering off DDEV", start: "Starting", stop: "Stopping", restart: "Restarting", pause: "Pausing container", resume: "Resuming container", snapshot: "Creating snapshot", restore: "Restoring database", snapshots: "Loading snapshots", domains: "Loading project domains", "browse-all": "Opening project domains", browse: "Opening browser", mailpit: "Opening Mailpit", folder: "Opening folder"})[action] || "Working" }
+    function actionLabelFor(action) { return ({poweroff: "Powering off DDEV", start: "Starting", stop: "Stopping", restart: "Restarting", snapshot: "Creating snapshot", restore: "Restoring database", snapshots: "Loading snapshots", domains: "Loading project domains", "browse-all": "Opening project domains", browse: "Opening browser", mailpit: "Opening Mailpit", folder: "Opening folder"})[action] || "Working" }
     function persistRefresh(value) {
         refreshSeconds = value
         if (!bar || !bar.shell || typeof bar.shell.updateEntryInline !== "function") return
@@ -636,7 +637,7 @@ Panel {
                                     anchors.verticalCenter: parent.verticalCenter
                                     iconText: "󰜉"
                                     text: "Restart"
-                                    tooltipText: projectRow.hasPaused ? "Resume containers before restarting" : projectRow.running ? "Restart project" : "Start the project before restarting"
+                                    tooltipText: projectRow.hasPaused ? "Restart is unavailable while a container is paused" : projectRow.running ? "Restart project" : "Start the project before restarting"
                                     enabled: !projectRow.busy && projectRow.running && !projectRow.hasPaused
                                     onClicked: root.execute("restart", projectRow.modelData.name, "")
                                 }
@@ -769,9 +770,10 @@ Panel {
                                     model: projectRow.serviceContainers
                                     Rectangle {
                                         id: serviceRow
+                                        objectName: "containerOverview-" + modelData.id
                                         required property var modelData
                                         width: parent.width
-                                        implicitHeight: Style.space(44)
+                                        implicitHeight: Style.space(36)
                                         radius: Style.space(6)
                                         color: Util.alpha(root.foreground, 0.025)
                                         RowLayout {
@@ -789,13 +791,7 @@ Panel {
                                                     text: serviceRow.modelData.stats ? "CPU " + serviceRow.modelData.stats.cpu + " · RAM " + serviceRow.modelData.stats.memory + "\nNetwork " + serviceRow.modelData.stats.network + " · Disk " + serviceRow.modelData.stats.disk + " · " + serviceRow.modelData.stats.pids + " PIDs" : ""
                                                 }
                                             }
-                                            IconAction {
-                                                objectName: "pauseContainer-" + serviceRow.modelData.id
-                                                iconText: serviceRow.modelData.state === "paused" ? "󰐊" : "󰏤"
-                                                tooltipText: serviceRow.modelData.state === "paused" ? "Resume container" : "Pause container"
-                                                enabled: !projectRow.busy && (serviceRow.modelData.state === "running" || serviceRow.modelData.state === "paused")
-                                                onClicked: root.execute(serviceRow.modelData.state === "paused" ? "resume" : "pause", projectRow.modelData.name, serviceRow.modelData.id)
-                                            }
+
                                         }
                                     }
                                 }
