@@ -255,7 +255,7 @@ Panel {
         next[name] = job
         jobs = next
         clockNow = Date.now()
-        if (["snapshots", "domains"].indexOf(action) < 0) updateOutput(name, {text: "", message: "", failed: false, action: action, expanded: false, open: true})
+        if (["snapshots", "domains"].indexOf(action) < 0) updateOutput(name, {text: "", message: "", failed: false, action: action, expanded: false, open: true, dismissed: false})
         job.running = true
         return true
     }
@@ -269,6 +269,11 @@ Panel {
         if (!job.receivedResult) {
             job.commandFailed = true
             updateOutput(job.projectName, {failed: true, message: "Command exited without a result (" + exitCode + ")", text: job.capturedOutput, open: true})
+        }
+        if (["snapshots", "domains"].indexOf(job.actionName) < 0 || job.commandFailed) {
+            var failed = job.commandFailed || exitCode !== 0
+            updateOutput(job.projectName, {failed: failed, open: failed, expanded: failed,
+                dismissed: failed ? false : !!outputFor(job.projectName).dismissed})
         }
         Monitoring.completed(job.projectName, job.actionName, !job.commandFailed)
         if (job.actionName === "poweroff" && !job.commandFailed)
@@ -881,7 +886,7 @@ Panel {
                                 width: parent.width
                                 height: 1
                                 color: Util.alpha(root.foreground, 0.12)
-                                visible: root.selectedName === projectRow.modelData.name || !!projectRow.consoleState.action || !!projectRow.consoleState.message
+                                visible: root.selectedName === projectRow.modelData.name || (!projectRow.consoleState.dismissed && (!!projectRow.consoleState.action || !!projectRow.consoleState.message))
                             }
                             Column {
                                 id: snapshotPanel
@@ -965,7 +970,7 @@ Panel {
                                 objectName: "console-" + projectRow.modelData.name
                                 width: parent.width
                                 spacing: Style.space(8)
-                                visible: !!projectRow.consoleState.action || !!projectRow.consoleState.message
+                                visible: !projectRow.consoleState.dismissed && (!!projectRow.consoleState.action || !!projectRow.consoleState.message)
                                 RowLayout {
                                     width: parent.width
                                     Spinner { visible: projectRow.consoleBusy; tint: root.progress }
@@ -983,8 +988,15 @@ Panel {
                                     }
                                     IconAction {
                                         iconText: projectRow.consoleState.open ? "󰅀" : "󰅃"
+                                        objectName: "toggleConsole-" + projectRow.modelData.name
                                         tooltipText: projectRow.consoleState.open ? "Hide console" : "Show console"
                                         onClicked: root.updateOutput(projectRow.modelData.name, {open: !projectRow.consoleState.open})
+                                    }
+                                    IconAction {
+                                        objectName: "closeConsole-" + projectRow.modelData.name
+                                        iconText: "󰅖"
+                                        tooltipText: projectRow.consoleBusy ? "Dismiss output · command continues" : "Dismiss command output"
+                                        onClicked: root.updateOutput(projectRow.modelData.name, {dismissed: true, open: false})
                                     }
                                 }
                                 Rectangle {

@@ -26,6 +26,8 @@ ShellRoot {
             test.check(!root.projectBusy("spare") && !root.testFind("powerSwitch-spare").busy, "THIRD_PROJECT_CONTROLS_AVAILABLE")
             test.check(root.testFind("powerSwitch-demo").busy && root.testFind("powerSwitch-other").busy, "INDEPENDENT_BUSY_SWITCHES")
             test.check(root.actionFor("demo") === "stop" && root.actionFor("other") === "stop", "INDEPENDENT_ACTION_LABELS")
+            root.testFind("closeConsole-other").clicked()
+            test.check(root.outputFor("other").dismissed && !!root.jobs.other, "DISMISS_DOES_NOT_CANCEL_COMMAND")
             root.query = "other"
             test.check(Object.keys(root.jobs).length === 2, "FILTER_PRESERVES_JOBS")
         }
@@ -36,6 +38,7 @@ ShellRoot {
             var root = plugin.item
             test.check(!!root.jobs.demo && !root.jobs.other, "JOBS_FINISH_INDEPENDENTLY")
             test.check(root.outputFor("other").failed && !root.outputFor("demo").failed, "FAILURE_ISOLATED_TO_PROJECT")
+            test.check(!root.outputFor("other").dismissed && root.outputFor("other").open, "FAILURE_REOPENS_DISMISSED_OUTPUT")
             test.check(!root.canRun("poweroff", "__all__"), "GLOBAL_BLOCKED_UNTIL_ALL_FINISH")
             root.query = ""
         }
@@ -46,6 +49,11 @@ ShellRoot {
             var root = plugin.item
             test.check(!root.busy && Object.keys(root.jobs).length === 0, "JOBS_CLEANED_UP")
             test.check(root.outputFor("demo").message === "Completed" && root.outputFor("other").message === "Command failed", "INDEPENDENT_FINAL_RESULTS")
+            test.check(!root.outputFor("demo").open && root.outputFor("other").open && root.outputFor("other").expanded, "SUCCESS_COLLAPSES_FAILURE_EXPANDS")
+            root.testFind("toggleConsole-demo").clicked()
+            test.check(root.outputFor("demo").open, "COMPLETED_OUTPUT_CAN_REOPEN")
+            root.testFind("closeConsole-demo").clicked()
+            test.check(root.outputFor("demo").dismissed && !root.outputFor("demo").open, "CLOSE_DISMISSES_OUTPUT")
             test.check(root.execute("poweroff", "__all__", ""), "GLOBAL_ACTION_AFTER_PROJECTS")
             test.check(!root.execute("start", "demo", ""), "PROJECT_BLOCKED_DURING_GLOBAL_ACTION")
         }
