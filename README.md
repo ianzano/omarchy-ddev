@@ -5,7 +5,7 @@ Native Quickshell taskbar plugin. Click the Docker icon and running/registered c
 ![DDEV project overview with per-project controls](preview.png)
 
 <details>
-<summary>Database snapshots and live console previews</summary>
+<summary>Domains, snapshots, container overview, and logs</summary>
 
 ![Database snapshots and Restore buttons inside a project card](docs/previews/snapshots.png)
 
@@ -15,13 +15,15 @@ Native Quickshell taskbar plugin. Click the Docker icon and running/registered c
 
 ![Combined live project logs with service prefixes](docs/previews/logs.png)
 
+![Project domains with individual Open buttons and Open all](docs/previews/domains.png)
+
 </details>
 
 Previews render the actual plugin interface with fictional projects, paths, snapshots, and console output.
 
 - Lists every project returned by `ddev list -j`, with live status every 15 seconds.
 - Sliding start/stop switches, colored project status cards, a distinct, labelled Restart control beside each power switch (enabled only for running projects), and icon shortcuts for browse, Mailpit, and the project folder.
-- Project actions share one left-aligned row: Site, Logs, Containers, Snapshots, Mailpit, and Folder.
+- Project actions share one left-aligned row: Domains, Logs, Containers, Snapshots, Mailpit, and Folder, all with labels.
 - Filter by project name or path.
 - Compact container overview with health, CPU and memory; additional metrics on hover.
 - Pause/resume individual container processes, with controls scoped to registered DDEV projects.
@@ -65,6 +67,9 @@ For manual installs, pull the repository and run `python3 install.py` again.
 
 ## Usage
 
+**Domains** lists the concrete site URLs reported by `ddev describe -j`, including configured `additional_hostnames` and `additional_fqdns` ([DDEV reference](https://docs.ddev.com/en/stable/users/extend/additional-hostnames/)). Open an individual domain or choose **Open all** to launch one browser tab per domain. The configured primary URL is listed first; other domains prefer HTTPS. HTTP/HTTPS duplicates and incidental loopback endpoints are omitted. Wildcard hosts are not opened literally. Opening a link rechecks it against DDEV's current domain list; it does not accept arbitrary URLs. Refresh or close/reopen the section after changing project domains.
+
+
 **Containers** expands a compact overview of the services belonging to a DDEV project. Each row shows the service, status/health, CPU and memory, with a small pause/resume control. Hover over the metrics for the memory limit, network I/O, disk I/O, and process count. Statistics update about every three seconds while the overview is open. Paused and stopped containers show unavailable statistics rather than misleading zero values.
 
 Use **Pause** or **Resume** on a service to freeze/unfreeze its processes with Docker. This preserves the container and its memory; it is different from stopping a project. Restart is disabled while any service is paused. Other projects can still run operations concurrently.
@@ -79,7 +84,7 @@ The top toolbar’s power icon runs `ddev poweroff` after confirmation, stopping
 
 Click **Restore…** inside a snapshot card and confirm with **Restore database**. The confirmation identifies the project and snapshot. Switching projects clears the confirmation.
 
-Restoring replaces the current database. Create a fresh snapshot first if you need to preserve it. DDEV handles database compatibility checks; the plugin never uses `--force`. DDEV may start a stopped project during database operations. Different projects can run operations concurrently, each with its own spinner, elapsed time, and output. Conflicting operations on the same project are blocked until its current command finishes. Global `ddev poweroff` is exclusive and cannot overlap project operations. Keep the shell running while commands finish. Stop runs plain `ddev stop`, without removing database volumes. Commands run as your desktop user. Missing environment variables are filled from the systemd user environment, preserving values already inherited from the desktop. If needed, the SSH agent falls back to the current user’s `ssh-agent.socket` under `XDG_RUNTIME_DIR`. Commands use argument arrays rather than shell strings, and are limited to registered projects.
+Restoring replaces the current database. Create a fresh snapshot first if you need to preserve it. DDEV handles database compatibility checks; the plugin never uses `--force`. DDEV may start a stopped project during database operations. Different projects can run operations concurrently, each with its own spinner, elapsed time, and output. Conflicting operations on the same project are blocked until its current command finishes. Global `ddev poweroff` is exclusive and cannot overlap project operations. Keep the shell running while commands finish. Stop runs plain `ddev stop`, without removing database volumes. Commands run as your desktop user. Missing environment variables are filled from the systemd user environment, preserving values already inherited from the desktop. If needed, the SSH agent falls back to the current user’s `ssh-agent.socket` under `XDG_RUNTIME_DIR`. Commands use argument arrays rather than shell strings, and are limited to registered projects. Project actions are consistently labelled on one row; the panel is slightly wider to fit Domains, Logs, Containers, Snapshots, Mailpit, and Folder.
 
 Use the settings gear to adjust the refresh interval with a slider (5–60 seconds); the setting is saved in the bar configuration. Middle-click the widget to refresh. The refresh period can be configured with `refreshIntervalSec` in its bar layout entry. Console text is selectable, with the most recent 24,000 characters retained per project. There is one scroll area for the entire panel; expanded console output has no separate scrollbar. Use **Show less** to return to the latest six lines, or the chevron to collapse the console. The spinner indicates ongoing work, rather than a percentage estimate.
 
@@ -89,7 +94,7 @@ omarchy-shell ianzano.ddev close
 omarchy-shell ianzano.ddev refresh
 omarchy-shell ianzano.ddev status
 omarchy plugin validate .
-python3 -m unittest -v test_backend test_install test_containers
+python3 -m unittest -v test_backend test_install test_containers test_domains
 python3 test_ui.py  # Requires the desktop Wayland session; uses simulated projects
 ```
 

@@ -28,6 +28,18 @@ Panel {
     property bool alertsEnabled: Boolean(setting("alertsEnabled", true))
     property var containers: []
     property string applicationProject: ""
+    property string domainProject: ""
+    property var domainViews: ({})
+    function domainFor(name) { return domainViews[name] || {items: []} }
+    function updateDomains(name, patch) {
+        var next = Object.assign({}, domainViews)
+        next[name] = Object.assign({items: [], error: ""}, next[name] || {}, patch)
+        domainViews = next
+    }
+    function showDomains(name) {
+        domainProject = domainProject === name ? "" : name
+        if (domainProject) { updateDomains(name, {error: ""}); execute("domains", name, "") }
+    }
     property string monitorWarning: ""
     property string eventWarning: ""
     property var logViews: ({})
@@ -168,7 +180,7 @@ Panel {
     readonly property color success: "#86c995"
     readonly property color progress: "#e4b76c"
     readonly property color muted: Commons.Color.muted
-    function actionLabelFor(action) { return ({poweroff: "Powering off DDEV", start: "Starting", stop: "Stopping", restart: "Restarting", pause: "Pausing container", resume: "Resuming container", snapshot: "Creating snapshot", restore: "Restoring database", snapshots: "Loading snapshots", browse: "Opening browser", mailpit: "Opening Mailpit", folder: "Opening folder"})[action] || "Working" }
+    function actionLabelFor(action) { return ({poweroff: "Powering off DDEV", start: "Starting", stop: "Stopping", restart: "Restarting", pause: "Pausing container", resume: "Resuming container", snapshot: "Creating snapshot", restore: "Restoring database", snapshots: "Loading snapshots", domains: "Loading project domains", "browse-all": "Opening project domains", browse: "Opening browser", mailpit: "Opening Mailpit", folder: "Opening folder"})[action] || "Working" }
     function persistRefresh(value) {
         refreshSeconds = value
         if (!bar || !bar.shell || typeof bar.shell.updateEntryInline !== "function") return
@@ -204,7 +216,7 @@ Panel {
         next[name] = job
         jobs = next
         clockNow = Date.now()
-        if (action !== "snapshots") updateOutput(name, {text: "", message: "", failed: false, action: action, expanded: false, open: true})
+        if (["snapshots", "domains"].indexOf(action) < 0) updateOutput(name, {text: "", message: "", failed: false, action: action, expanded: false, open: true})
         job.running = true
         return true
     }
@@ -379,7 +391,9 @@ Panel {
                         }
                         job.receivedResult = true
                         job.commandFailed = !data.ok
-                        if (job.actionName === "snapshots" && data.ok) {
+                        if (job.actionName === "domains") {
+                            root.updateDomains(job.projectName, {items: data.ok ? data.domains || [] : [], error: data.ok ? "" : data.message || "Could not read project domains"})
+                        } else if (job.actionName === "snapshots" && data.ok) {
                             if (root.selectedName === job.projectName) {
                                 root.snapshots = data.snapshots
                                 if (!root.snapshots.some(s => s.path === root.pendingRestore)) root.pendingRestore = ""
@@ -417,7 +431,7 @@ Panel {
         bar: root.bar
         open: root.opened
         focusTarget: content
-        contentWidth: panel.fittedContentWidth(Style.space(510))
+        contentWidth: panel.fittedContentWidth(Style.space(570))
         contentHeight: panel.fittedContentHeight(content.implicitHeight, Style.space(680))
         Flickable {
             id: panelScroll
@@ -655,10 +669,11 @@ Panel {
                                 spacing: Style.space(5)
                                 ToolbarAction {
                                     objectName: "openProjectSite-" + projectRow.modelData.name
-                                    text: "Site"; iconText: "󰖟"; foreground: root.success
-                                    tooltipText: "Open project site"
+                                    text: "Domains"; iconText: "󰖟"; foreground: root.success
+                                    tooltipText: "Project domains and Open all"
+                                    selected: root.domainProject === projectRow.modelData.name
                                     enabled: !projectRow.busy && projectRow.running
-                                    onClicked: root.execute("browse", projectRow.modelData.name, "")
+                                    onClicked: root.showDomains(projectRow.modelData.name)
                                 }
                                 ToolbarAction {
                                     objectName: "openProjectLogs-" + projectRow.modelData.name
@@ -682,19 +697,65 @@ Panel {
                                     enabled: !projectRow.busy
                                     onClicked: root.selectProject(projectRow.modelData.name)
                                 }
-                                IconAction {
+                                ToolbarAction {
                                     objectName: "openProjectMailpit-" + projectRow.modelData.name
-                                    iconText: "󰇮"; tooltipText: "Open Mailpit"
+                                    text: "Mailpit"; iconText: "󰇮"; tooltipText: "Open Mailpit"
                                     enabled: !projectRow.busy && projectRow.running
                                     onClicked: root.execute("mailpit", projectRow.modelData.name, "")
                                 }
-                                IconAction {
+                                ToolbarAction {
                                     objectName: "openProjectFolder-" + projectRow.modelData.name
-                                    iconText: "󰉋"; tooltipText: "Open project folder"
+                                    text: "Folder"; iconText: "󰉋"; tooltipText: "Open project folder"
                                     enabled: !projectRow.busy
                                     onClicked: root.execute("folder", projectRow.modelData.name, "")
                                 }
                                 Item { Layout.fillWidth: true }
+                            }
+                            Column {
+                                objectName: "domains-" + projectRow.modelData.name
+                                width: parent.width
+                                spacing: Style.space(8)
+                                visible: root.domainProject === projectRow.modelData.name
+                                RowLayout {
+                                    width: parent.width
+                                    Label { text: "Project domains"; font.bold: true; Layout.fillWidth: true }
+                                    IconAction { iconText: "󰑐"; tooltipText: "Refresh domains"; enabled: !projectRow.busy; onClicked: root.execute("domains", projectRow.modelData.name, "") }
+                                    ToolbarAction {
+                                        objectName: "openAllDomains-" + projectRow.modelData.name
+                                        text: "Open all (" + root.domainFor(projectRow.modelData.name).items.length + ")"
+                                        iconText: "󰖟"
+                                        enabled: !projectRow.busy && projectRow.running && root.domainFor(projectRow.modelData.name).items.length > 0
+                                        onClicked: root.execute("browse-all", projectRow.modelData.name, "")
+                                    }
+                                }
+                                Label { width: parent.width; wrapMode: Text.Wrap; text: root.domainFor(projectRow.modelData.name).error || ""; visible: text !== ""; color: Commons.Color.urgent }
+                                Label { width: parent.width; wrapMode: Text.Wrap; color: root.muted; text: projectRow.busy && root.actionFor(projectRow.modelData.name) === "domains" ? "Loading domains from DDEV…" : "No concrete project domains available."; visible: root.domainFor(projectRow.modelData.name).items.length === 0 }
+                                Repeater {
+                                    model: root.domainFor(projectRow.modelData.name).items
+                                    Rectangle {
+                                        id: domainRow
+                                        required property var modelData
+                                        width: parent.width
+                                        implicitHeight: Math.max(domainText.implicitHeight, openDomain.implicitHeight) + Style.space(16)
+                                        radius: Style.space(6)
+                                        color: Util.alpha(root.foreground, 0.035)
+                                        Column {
+                                            id: domainText
+                                            anchors { left: parent.left; leftMargin: Style.space(8); right: openDomain.left; rightMargin: Style.space(10); verticalCenter: parent.verticalCenter }
+                                            spacing: Style.space(2)
+                                            Label { width: parent.width; elide: Text.ElideMiddle; text: (domainRow.modelData.primary ? "Primary · " : "") + domainRow.modelData.host; font.bold: domainRow.modelData.primary }
+                                            Label { width: parent.width; elide: Text.ElideMiddle; text: domainRow.modelData.url; color: root.muted; font.pixelSize: Style.font.caption }
+                                        }
+                                        ToolbarAction {
+                                            id: openDomain
+                                            objectName: "openDomain-" + projectRow.modelData.name + "-" + domainRow.modelData.host
+                                            anchors { right: parent.right; rightMargin: Style.space(8); verticalCenter: parent.verticalCenter }
+                                            text: "Open"; iconText: "󰖟"
+                                            enabled: !projectRow.busy && projectRow.running
+                                            onClicked: root.execute("browse", projectRow.modelData.name, domainRow.modelData.url)
+                                        }
+                                    }
+                                }
                             }
                             Column {
                                 objectName: "applications-" + projectRow.modelData.name
@@ -702,7 +763,6 @@ Panel {
                                 spacing: Style.space(8)
                                 visible: root.applicationProject === projectRow.modelData.name
                                 Label { text: "Containers"; font.bold: true }
-                                Label { width: parent.width; text: projectRow.modelData.primary_url || ""; elide: Text.ElideMiddle; visible: text !== ""; color: root.muted; font.pixelSize: Style.font.caption }
                                 Label { width: parent.width; text: root.monitorWarning; visible: text !== ""; wrapMode: Text.Wrap; color: root.progress }
                                 Label { text: "No containers found. Start the project to create them."; visible: projectRow.serviceContainers.length === 0; width: parent.width; wrapMode: Text.Wrap; color: root.muted }
                                 Repeater {

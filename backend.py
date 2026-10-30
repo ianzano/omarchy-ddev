@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Small JSON bridge to DDEV. Commands use argv arrays, never a shell."""
 import json
+import ipaddress
+from urllib.parse import urlsplit
 from concurrent.futures import ThreadPoolExecutor
 import codecs
 from functools import lru_cache
@@ -317,6 +319,72 @@ def follow_project_logs(entries, project):
             signal.signal(signum, handler)
 
 
+def project_domains(project):
+    proc = run(['ddev', 'describe', project['name'], '-j'], cwd=project['approot'], timeout=20)
+    descriptions = [row['raw'] for row in records(proc.stdout) if isinstance(row.get('raw'), dict)]
+    if not descriptions:
+        raise RuntimeError(proc.stderr.strip() or 'DDEV could not describe this project; start it and refresh domains')
+    description = descriptions[-1]
+    primary = description.get('primary_url') or project.get('primary_url') or ''
+    candidates = []
+    if primary:
+        candidates.append(primary)
+    for field in ('httpsURLs', 'httpURLs'):
+        values = description.get(field)
+        if isinstance(values, list):
+            candidates.extend(values)
+    if len(candidates) <= 1 and isinstance(description.get('urls'), list):
+        candidates.extend(description['urls'])
+    candidates.extend([description.get('httpsurl'), description.get('httpurl')])
+    valid = []
+    for value in candidates:
+        if not isinstance(value, str) or any(ord(char) < 32 for char in value):
+            continue
+        try:
+            parsed = urlsplit(value)
+            host = parsed.hostname
+            if parsed.scheme not in ('http', 'https') or not host or '*' in host or parsed.username is not None or parsed.password is not None:
+                continue
+            parsed.port  # Validate malformed ports before handing a URL to the desktop.
+            try:
+                loopback = ipaddress.ip_address(host).is_loopback
+            except ValueError:
+                loopback = host.lower() == 'localhost'
+            valid.append({'url': value, 'host': host, 'primary': value == primary, 'loopback': loopback, 'secure': parsed.scheme == 'https'})
+        except ValueError:
+            continue
+    if any(not entry['loopback'] for entry in valid):
+        valid = [entry for entry in valid if not entry['loopback'] or entry['primary']]
+    valid.sort(key=lambda entry: (not entry['primary'], not entry['secure']))
+    result = []
+    seen = set()
+    for entry in valid:
+        host = entry['host'].lower()
+        if host in seen:
+            continue
+        seen.add(host)
+        result.append({key: entry[key] for key in ('url', 'host', 'primary')})
+    return result
+
+
+def browse_domains(project, selected=None, all_domains=False):
+    domains = project_domains(project)
+    if selected is not None:
+        domains = [entry for entry in domains if entry['url'] == selected]
+        if not domains:
+            raise ValueError('Choose a URL reported by DDEV for this project')
+    elif not all_domains:
+        domains = domains[:1]
+    if not domains:
+        raise ValueError('DDEV has no concrete HTTP/HTTPS domains to open for this project')
+    failed = []
+    for entry in domains:
+        proc = run(['xdg-open', entry['url']], timeout=20)
+        if proc.returncode:
+            failed.append(entry['host'])
+    return {'ok': not failed, 'message': 'Could not open: ' + ', '.join(failed) if failed else 'Opened ' + str(len(domains)) + ' project domain' + ('s' if len(domains) != 1 else '')}
+
+
 def main(args):
     action = args[0] if args else 'list'
     if action == 'poweroff':
@@ -361,9 +429,13 @@ def main(args):
         command = 'pause' if action == 'pause' else 'unpause'
         proc = run(['docker', command, container['id']], timeout=30, stream=True)
         return {'ok': proc.returncode == 0, 'message': (proc.stdout + proc.stderr).strip() or 'Done'}
+    if action == 'domains':
+        return {'ok': True, 'domains': project_domains(project)}
+    if action in ('browse', 'browse-all'):
+        return browse_domains(project, selected=args[2] if len(args) > 2 else None, all_domains=action == 'browse-all')
     if action == 'snapshots':
         return {'ok': True, 'snapshots': snapshots(project)}
-    if action in ('browse', 'mailpit', 'folder'):
+    if action in ('mailpit', 'folder'):
         target = cwd if action == 'folder' else project.get('primary_url') or project.get('httpsurl')
         if action == 'mailpit':
             target = project.get('mailpit_https_url') or project.get('mailpit_url')

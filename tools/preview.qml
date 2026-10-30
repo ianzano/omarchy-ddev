@@ -17,7 +17,7 @@ ShellRoot {
         panel.projects = scene === "overview"
             ? [project("storefront", "running", "php"), project("api-service", "running", "laravel"), project("docs-site", "stopped", "php")]
             : [project("storefront", scene === "console" ? "stopped" : "running", "php"), project("docs-site", "stopped", "php")]
-        if (scene === "applications" || scene === "logs") panel.projects = [project("storefront", "running", "php")]
+        if (scene === "applications" || scene === "logs" || scene === "domains") panel.projects = [project("storefront", "running", "php")]
         var demoContainers = []
         for (var i = 0; i < panel.projects.length; i++) {
             var application = panel.projects[i]
@@ -26,6 +26,14 @@ ShellRoot {
             demoContainers.push({id: "b".repeat(64), project: application.name, service: "db", name: "ddev-" + application.name + "-db", state: "running", health: "healthy", stats: {cpu: "0.7%", memory: "64MiB / 8GiB", network: "8kB / 12kB", disk: "12MB / 3MB", pids: "9"}})
         }
         panel.applyInventory(demoContainers, false)
+        if (scene === "domains") {
+            panel.domainProject = "storefront"
+            panel.updateDomains("storefront", {items: [
+                {url: "https://storefront.ddev.site", host: "storefront.ddev.site", primary: true},
+                {url: "https://admin.storefront.ddev.site", host: "admin.storefront.ddev.site", primary: false},
+                {url: "https://shop.example.test", host: "shop.example.test", primary: false}
+            ], error: ""})
+        }
         if (scene === "applications") panel.applicationProject = "storefront"
         if (scene === "logs") panel.updateLog("storefront", {open: true, live: true, expanded: true, error: "", text: "[web] 2026-01-01T12:00:00Z Web server ready\n[db] 2026-01-01T12:00:01Z Database ready\n[web] 2026-01-01T12:00:02Z GET /assets/app.css 200\n[web] 2026-01-01T12:00:05Z GET /api/products 200"})
         if (scene === "snapshots") {
