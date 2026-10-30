@@ -58,7 +58,7 @@ Panel {
     }
     function showDomains(name) {
         if (isDetail(name, "domains")) { closeDetails(); return }
-        if (projectBusy(name)) return
+        if (!projectRunning(name) || projectBusy(name)) return
         activateDetail(name, "domains")
         updateDomains(name, {error: ""})
         execute("domains", name, "")
@@ -75,6 +75,7 @@ Panel {
         logViews = next
     }
     function selectLog(name) {
+        if (!projectRunning(name)) return
         activateDetail(name, "logs")
         var view = logFor(name)
         // Opening an existing viewer must not clear a still-running stream.
@@ -131,6 +132,7 @@ Panel {
     }
     function showApplications(name) {
         if (isDetail(name, "containers")) { closeDetails(); return }
+        if (!projectRunning(name)) return
         activateDetail(name, "containers")
         refreshContainers()
     }
@@ -179,16 +181,24 @@ Panel {
         var job = globalBusy ? jobs["__all__"] : jobs[name]
         return job ? Math.max(0, Math.floor((clockNow - job.startedAt) / 1000)) : 0
     }
+    function projectRunning(name) { return projects.some(p => p.name === name && p.status === "running") }
     function canRun(action, name) {
         if (["poweroff", "start", "stop", "restart", "snapshot", "snapshots", "restore", "domains", "browse", "browse-all", "mailpit", "folder"].indexOf(action) < 0) return false
         if (action === "poweroff") return !busy
         if (projectBusy(name)) return false
-        if (action === "restart") return projects.some(p => p.name === name && p.status === "running") && !containersFor(name).some(c => c.state === "paused")
+        if (["restart", "snapshot", "restore", "domains", "browse", "browse-all", "mailpit"].indexOf(action) >= 0 && !projectRunning(name)) return false
+        if (action === "restart") return !containersFor(name).some(c => c.state === "paused")
         return true
     }
     property string pendingRestore: ""
     property string pendingLabel: ""
     property string query: ""
+    onProjectsChanged: {
+        if (detailProject && !projectRunning(detailProject)) {
+            if (activeDetail.tab !== "snapshots") closeDetails()
+            pendingRestore = ""
+        }
+    }
     onQueryChanged: Qt.callLater(function() {
         if (root.detailProject && !root.filteredProjects.some(p => p.name === root.detailProject)) root.closeDetails()
     })
@@ -664,7 +674,7 @@ Panel {
                                     anchors.verticalCenter: parent.verticalCenter
                                     iconText: "󰜉"
                                     text: "Restart"
-                                    tooltipText: projectRow.hasPaused ? "Restart is unavailable while a container is paused" : projectRow.running ? "Restart project" : "Start the project before restarting"
+                                    tooltipText: projectRow.hasPaused ? "Restart is unavailable while a container is paused" : projectRow.running ? "Restart project" : "Start the project first"
                                     enabled: !projectRow.busy && projectRow.running && !projectRow.hasPaused
                                     onClicked: root.execute("restart", projectRow.modelData.name, "")
                                 }
@@ -700,8 +710,8 @@ Panel {
                                     viewName: "domains"
                                     objectName: "openProjectSite-" + projectRow.modelData.name
                                     text: "Domains"; iconText: "󰖟"
-                                    tooltipText: selected ? "Close domains" : "Open project domains"
-                                    enabled: selected || (!projectRow.busy && projectRow.running)
+                                    tooltipText: !projectRow.running ? "Start the project first" : selected ? "Close domains" : "Open project domains"
+                                    enabled: projectRow.running && (selected || !projectRow.busy)
                                     onClicked: root.showDomains(projectRow.modelData.name)
                                 }
                                 DetailTab {
@@ -709,7 +719,8 @@ Panel {
                                     viewName: "logs"
                                     objectName: "openProjectLogs-" + projectRow.modelData.name
                                     text: "Logs"; iconText: "󰆍"
-                                    tooltipText: root.logFor(projectRow.modelData.name).open ? "Close project logs" : "Open project logs"
+                                    tooltipText: !projectRow.running ? "Start the project first" : selected ? "Close project logs" : "Open project logs"
+                                    enabled: projectRow.running
                                     onClicked: root.toggleLog(projectRow.modelData.name)
                                 }
                                 DetailTab {
@@ -717,7 +728,8 @@ Panel {
                                     viewName: "containers"
                                     objectName: "showProjectContainers-" + projectRow.modelData.name
                                     text: "Containers"; iconText: "󰡨"
-                                    tooltipText: selected ? "Close container overview" : "Open container overview"
+                                    tooltipText: !projectRow.running ? "Start the project first" : selected ? "Close container overview" : "Open container overview"
+                                    enabled: projectRow.running
                                     onClicked: root.showApplications(projectRow.modelData.name)
                                 }
                                 DetailTab {
@@ -739,7 +751,7 @@ Panel {
                                 }
                                 ToolbarAction {
                                     objectName: "openProjectMailpit-" + projectRow.modelData.name
-                                    text: "Mailpit"; iconText: "󰇮"; tooltipText: "Open Mailpit"
+                                    text: "Mailpit"; iconText: "󰇮"; tooltipText: projectRow.running ? "Open Mailpit" : "Start the project first"
                                     enabled: !projectRow.busy && projectRow.running
                                     onClicked: root.execute("mailpit", projectRow.modelData.name, "")
                                 }
@@ -883,11 +895,11 @@ Panel {
                                 }
                                 RowLayout {
                                     width: parent.width
-                                    TextField { id: snapshotName; Layout.fillWidth: true; placeholderText: "Snapshot name (optional)" }
-                                    Action { text: "Create"; iconText: "󰐕"; enabled: !projectRow.busy; onClicked: root.execute("snapshot", root.selectedName, snapshotName.text.trim()) }
+                                    TextField { id: snapshotName; enabled: projectRow.running && !projectRow.busy; Layout.fillWidth: true; placeholderText: "Snapshot name (optional)" }
+                                    Action { objectName: "createSnapshot-" + projectRow.modelData.name; text: "Create"; iconText: "󰐕"; tooltipText: projectRow.running ? "Create database snapshot" : "Start the project first"; enabled: projectRow.running && !projectRow.busy; onClicked: root.execute("snapshot", root.selectedName, snapshotName.text.trim()) }
                                     IconAction { iconText: "󰑐"; tooltipText: "Reload snapshots"; enabled: !projectRow.busy; onClicked: root.execute("snapshots", root.selectedName, "") }
                                 }
-                                Label { text: "Local project snapshots, newest first. DDEV may start a stopped project."; width: parent.width; wrapMode: Text.Wrap; opacity: 0.65 }
+                                Label { text: "Local project snapshots, newest first. Start the project to create or restore a snapshot."; width: parent.width; wrapMode: Text.Wrap; opacity: 0.65 }
                                 Label { visible: root.snapshots.length === 0; text: projectRow.busy && root.actionFor(projectRow.modelData.name) === "snapshots" ? "Loading snapshots…" : "No local snapshots found." }
                                 Repeater {
                                     model: root.selectedName === projectRow.modelData.name ? root.snapshots : []
@@ -921,7 +933,8 @@ Panel {
                                             anchors.verticalCenter: parent.verticalCenter
                                             text: "Restore…"
                                             iconText: "󰕍"
-                                            enabled: !projectRow.busy && root.pendingRestore !== snapshotRow.modelData.path
+                                            tooltipText: projectRow.running ? "Restore this snapshot" : "Start the project first"
+                                            enabled: projectRow.running && !projectRow.busy && root.pendingRestore !== snapshotRow.modelData.path
                                             onClicked: {
                                                 root.pendingRestore = snapshotRow.modelData.path
                                                 root.pendingLabel = snapshotRow.modelData.name
@@ -942,7 +955,7 @@ Panel {
                                     Row {
                                         spacing: Style.space(8)
                                         Action { text: "Cancel"; onClicked: root.pendingRestore = "" }
-                                        Action { text: "Restore database"; iconText: "󰕍"; foreground: Commons.Color.urgent; enabled: !projectRow.busy; onClicked: { var path = root.pendingRestore; root.pendingRestore = ""; root.execute("restore", root.selectedName, path) } }
+                                        Action { objectName: "confirmRestore-" + projectRow.modelData.name; tooltipText: projectRow.running ? "Replace the current database" : "Start the project first"; text: "Restore database"; iconText: "󰕍"; foreground: Commons.Color.urgent; enabled: projectRow.running && !projectRow.busy; onClicked: { var path = root.pendingRestore; root.pendingRestore = ""; root.execute("restore", root.selectedName, path) } }
                                     }
                                 }
                             }
@@ -1029,7 +1042,16 @@ Panel {
         font.family: Style.font.family
         font.pixelSize: Style.font.body
     }
-    component Action: Button { focusable: true; bordered: true; fontSize: Style.font.caption; opacity: enabled ? 1 : 0.4 }
+    component Action: Button {
+        id: actionButton
+        focusable: true; bordered: true; fontSize: Style.font.caption; opacity: enabled ? 1 : 0.4
+        HoverHandler { id: disabledHover }
+        Controls.ToolTip {
+            visible: !actionButton.enabled && disabledHover.hovered && text !== ""
+            text: actionButton.tooltipText
+            delay: 400
+        }
+    }
     component ToolbarAction: Action {
         implicitHeight: Style.space(32)
         Layout.minimumWidth: implicitWidth
