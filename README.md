@@ -2,6 +2,19 @@
 
 Native Quickshell taskbar plugin. Click the Docker icon and running/registered count beside the system tray.
 
+![DDEV project overview with per-project controls](preview.png)
+
+<details>
+<summary>Database snapshots and live console previews</summary>
+
+![Database snapshots and Restore buttons inside a project card](docs/previews/snapshots.png)
+
+![Project startup progress with a spinner and inline console output](docs/previews/console.png)
+
+</details>
+
+Previews render the actual plugin interface with fictional projects, paths, snapshots, and console output.
+
 - Lists every project returned by `ddev list -j`, with live status every 15 seconds.
 - Sliding start/stop switches, colored project status cards, Restart beside each power switch (enabled only for running projects), and icon shortcuts for browse, Mailpit, and the project folder.
 - Filter by project name or path.
@@ -88,3 +101,11 @@ The repository contains source code and synthetic test fixtures. Project names, 
 ## Publishing
 
 The root manifest follows the [Omarchy publishing guide](https://plugins.omarchy.org/publish.html). Validate the repository with `omarchy plugin validate .` before submitting its URL to the marketplace. A valid repository is ready for submission; listing still requires marketplace review.
+
+## Regenerate previews
+
+```sh
+python3 tools/render_previews.py
+```
+
+Requires the installed Omarchy shell, Quickshell, and a Nerd Font. The renderer runs headlessly with an isolated home and configuration directory. It disables backend discovery and uses synthetic data, without capturing the desktop or running DDEV commands. It writes `preview.png` for the marketplace and two additional images under `docs/previews/`.
