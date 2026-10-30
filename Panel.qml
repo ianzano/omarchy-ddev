@@ -46,6 +46,14 @@ Panel {
             live: view.live === undefined ? true : view.live})
         refreshLog(name)
     }
+    function closeLog(name) {
+        updateLog(name, {open: false})
+        stopLog(name, false)
+    }
+    function toggleLog(name) {
+        if (logFor(name).open) closeLog(name)
+        else selectLog(name)
+    }
     function logSignature(name) { return containersFor(name).map(c => c.id).sort().join(",") }
     function stopLog(name, restart) {
         var reader = logJobs[name]
@@ -657,7 +665,8 @@ Panel {
                                     text: "Logs"; iconText: "󰆍"
                                     selected: !!root.logFor(projectRow.modelData.name).open
                                     enabled: true
-                                    onClicked: root.selectLog(projectRow.modelData.name)
+                                    tooltipText: root.logFor(projectRow.modelData.name).open ? "Close project logs" : "Open project logs"
+                                    onClicked: root.toggleLog(projectRow.modelData.name)
                                 }
                                 Label {
                                     Layout.fillWidth: true; elide: Text.ElideRight
@@ -719,7 +728,7 @@ Panel {
                                     Label { text: "Project logs"; Layout.fillWidth: true; elide: Text.ElideRight; font.bold: true }
                                     Action { text: "Live"; selected: !!root.logFor(projectRow.modelData.name).live; onClicked: root.setLogLive(projectRow.modelData.name, !root.logFor(projectRow.modelData.name).live) }
                                     IconAction { iconText: "󰑐"; tooltipText: "Refresh logs"; onClicked: root.stopLog(projectRow.modelData.name, true) }
-                                    IconAction { objectName: "closeProjectLogs-" + projectRow.modelData.name; iconText: "󰅖"; tooltipText: "Close log viewer"; onClicked: { root.updateLog(projectRow.modelData.name, {open: false}); root.stopLog(projectRow.modelData.name, false) } }
+                                    IconAction { objectName: "closeProjectLogs-" + projectRow.modelData.name; iconText: "󰅖"; tooltipText: "Close log viewer"; onClicked: root.closeLog(projectRow.modelData.name) }
                                 }
                                 Label { width: parent.width; wrapMode: Text.Wrap; visible: text !== ""; text: root.logFor(projectRow.modelData.name).error || ""; color: Commons.Color.urgent }
                                 Controls.TextArea {
