@@ -33,7 +33,7 @@ ShellRoot {
             root.applyInventory(test.inventory("running", "healthy"), true)
             root.flushAlerts()
             test.check(root.testAlerts.length === 0, "NO_INITIAL_INVENTORY_ALERTS")
-            root.applicationProject = "demo"
+            root.showApplications("demo")
             test.check(root.containersFor("demo").length === 2 && root.containersFor("demo")[0].stats.cpu === "2.5%", "CONTAINER_INVENTORY_AND_STATS")
             root.receiveEvent(test.event("health_status: unhealthy"))
             root.receiveEvent(test.event("health_status: unhealthy", "db"))
@@ -63,6 +63,7 @@ ShellRoot {
             root.receiveEvent({project: "unregistered", service: "web", id: test.cid, action: "die"})
             root.flushAlerts()
             test.check(root.testAlerts.length === 4, "PROJECT_ALERTS_DEDUPLICATED_AND_SCOPED")
+            test.check(root.testFind("containerOverview-" + test.cid).implicitHeight <= Style.space(40), "READ_ONLY_CONTAINER_OVERVIEW_IS_COMPACT")
             root.selectLog("demo")
             test.check(root.execute("folder", "demo", ""), "PROJECT_ACTION_ACCEPTED_WITH_LOG_STREAM_ACTIVE")
         }
@@ -87,7 +88,6 @@ ShellRoot {
             var root = plugin.item
             test.check(!root.testFind("pauseContainer-" + test.cid), "NO_PER_CONTAINER_MUTATION_CONTROL")
             test.check(!root.canRun("pause", "demo") && !root.canRun("resume", "demo"), "REMOVED_ACTIONS_REJECTED_BY_UI")
-            test.check(root.testFind("containerOverview-" + test.cid).implicitHeight <= Style.space(40), "READ_ONLY_CONTAINER_OVERVIEW_IS_COMPACT")
             test.check(root.testFind("projectLogs-demo").text.indexOf("[db]") >= 0, "INLINE_PROJECT_LOG_VIEWER_RENDERED")
             test.check(!root.logJobs.demo && !root.logFor("demo").error, "STOPPING_LIVE_LOGS_CLEANS_UP_READER")
         }

@@ -27,8 +27,28 @@ Panel {
     property bool monitoringEnabled: true
     property bool alertsEnabled: Boolean(setting("alertsEnabled", true))
     property var containers: []
-    property string applicationProject: ""
-    property string domainProject: ""
+    property var activeDetail: ({project: "", tab: ""})
+    readonly property string detailProject: activeDetail.project
+    readonly property string applicationProject: activeDetail.tab === "containers" ? activeDetail.project : ""
+    readonly property string domainProject: activeDetail.tab === "domains" ? activeDetail.project : ""
+    function isDetail(name, tab) { return activeDetail.project === name && activeDetail.tab === tab }
+    function closeDetails() {
+        activeDetail = {project: "", tab: ""}
+        pendingRestore = ""
+        snapshots = []
+        var names = Object.keys(logViews)
+        for (var i = 0; i < names.length; i++) {
+            if (logFor(names[i]).open) {
+                updateLog(names[i], {open: false})
+                stopLog(names[i], false)
+            }
+        }
+    }
+    function activateDetail(name, tab) {
+        if (isDetail(name, tab)) return
+        closeDetails()
+        activeDetail = {project: name, tab: tab}
+    }
     property var domainViews: ({})
     function domainFor(name) { return domainViews[name] || {items: []} }
     function updateDomains(name, patch) {
@@ -37,8 +57,11 @@ Panel {
         domainViews = next
     }
     function showDomains(name) {
-        domainProject = domainProject === name ? "" : name
-        if (domainProject) { updateDomains(name, {error: ""}); execute("domains", name, "") }
+        if (isDetail(name, "domains")) { closeDetails(); return }
+        if (projectBusy(name)) return
+        activateDetail(name, "domains")
+        updateDomains(name, {error: ""})
+        execute("domains", name, "")
     }
     property string monitorWarning: ""
     property string eventWarning: ""
@@ -52,6 +75,7 @@ Panel {
         logViews = next
     }
     function selectLog(name) {
+        activateDetail(name, "logs")
         var view = logFor(name)
         // Opening an existing viewer must not clear a still-running stream.
         updateLog(name, {open: true, expanded: view.expanded === undefined ? false : view.expanded,
@@ -59,11 +83,11 @@ Panel {
         refreshLog(name)
     }
     function closeLog(name) {
-        updateLog(name, {open: false})
-        stopLog(name, false)
+        if (isDetail(name, "logs")) closeDetails()
+        else { updateLog(name, {open: false}); stopLog(name, false) }
     }
     function toggleLog(name) {
-        if (logFor(name).open) closeLog(name)
+        if (isDetail(name, "logs")) closeLog(name)
         else selectLog(name)
     }
     function logSignature(name) { return containersFor(name).map(c => c.id).sort().join(",") }
@@ -81,7 +105,7 @@ Panel {
     }
     function refreshLog(name) {
         var view = logFor(name)
-        if (!view.open) return
+        if (!view.open || !isDetail(name, "logs")) return
         if (logJobs[name]) {
             // A close/reopen can arrive before the previous reader exits.
             if (logJobs[name].cancelled) logJobs[name].restartRequested = true
@@ -106,8 +130,9 @@ Panel {
         monitor.running = true
     }
     function showApplications(name) {
-        applicationProject = applicationProject === name ? "" : name
-        if (applicationProject) refreshContainers()
+        if (isDetail(name, "containers")) { closeDetails(); return }
+        activateDetail(name, "containers")
+        refreshContainers()
     }
     function announce(alerts) {
         if (!monitoringEnabled || !alertsEnabled) return
@@ -142,7 +167,7 @@ Panel {
         entry.alertsEnabled = value
         if (bar && bar.shell && typeof bar.shell.updateEntryInline === "function") bar.shell.updateEntryInline(moduleName, entry)
     }
-    property string selectedName: ""
+    readonly property string selectedName: activeDetail.tab === "snapshots" ? activeDetail.project : ""
     property string warning: ""
     property var jobs: ({})
     readonly property bool busy: Object.keys(jobs).length > 0
@@ -164,6 +189,9 @@ Panel {
     property string pendingRestore: ""
     property string pendingLabel: ""
     property string query: ""
+    onQueryChanged: Qt.callLater(function() {
+        if (root.detailProject && !root.filteredProjects.some(p => p.name === root.detailProject)) root.closeDetails()
+    })
     property bool settingsOpen: false
     property bool poweroffConfirm: false
     property var projectOutputs: ({})
@@ -222,11 +250,10 @@ Panel {
         return true
     }
     function selectProject(name) {
+        if (isDetail(name, "snapshots")) { closeDetails(); return }
         if (projectBusy(name)) return
-        selectedName = selectedName === name ? "" : name
-        snapshots = []
-        pendingRestore = ""
-        if (selectedName) execute("snapshots", name, "")
+        activateDetail(name, "snapshots")
+        execute("snapshots", name, "")
     }
     function finishJob(job, exitCode) {
         if (!job.receivedResult) {
@@ -602,7 +629,7 @@ Panel {
                         radius: Style.space(10)
                         color: Util.alpha(projectRow.statusColor, busy ? 0.08 : 0.035)
                         border.width: 1
-                        border.color: Util.alpha(projectRow.statusColor, busy ? 0.5 : 0.18)
+                        border.color: root.detailProject === modelData.name ? Util.alpha(Commons.Color.accent, 0.65) : Util.alpha(projectRow.statusColor, busy ? 0.5 : 0.18)
                         Behavior on color { ColorAnimation { duration: 180 } }
                         Column {
                             id: projectContent
@@ -668,35 +695,47 @@ Panel {
                                 objectName: "projectActions-" + projectRow.modelData.name
                                 width: parent.width
                                 spacing: Style.space(5)
-                                ToolbarAction {
+                                DetailTab {
+                                    projectName: projectRow.modelData.name
+                                    viewName: "domains"
                                     objectName: "openProjectSite-" + projectRow.modelData.name
-                                    text: "Domains"; iconText: "󰖟"; foreground: root.success
-                                    tooltipText: "Project domains and Open all"
-                                    selected: root.domainProject === projectRow.modelData.name
-                                    enabled: !projectRow.busy && projectRow.running
+                                    text: "Domains"; iconText: "󰖟"
+                                    tooltipText: selected ? "Close domains" : "Open project domains"
+                                    enabled: selected || (!projectRow.busy && projectRow.running)
                                     onClicked: root.showDomains(projectRow.modelData.name)
                                 }
-                                ToolbarAction {
+                                DetailTab {
+                                    projectName: projectRow.modelData.name
+                                    viewName: "logs"
                                     objectName: "openProjectLogs-" + projectRow.modelData.name
                                     text: "Logs"; iconText: "󰆍"
-                                    selected: !!root.logFor(projectRow.modelData.name).open
                                     tooltipText: root.logFor(projectRow.modelData.name).open ? "Close project logs" : "Open project logs"
                                     onClicked: root.toggleLog(projectRow.modelData.name)
                                 }
-                                ToolbarAction {
+                                DetailTab {
+                                    projectName: projectRow.modelData.name
+                                    viewName: "containers"
                                     objectName: "showProjectContainers-" + projectRow.modelData.name
                                     text: "Containers"; iconText: "󰡨"
-                                    selected: root.applicationProject === projectRow.modelData.name
-                                    tooltipText: "Container overview and live statistics"
+                                    tooltipText: selected ? "Close container overview" : "Open container overview"
                                     onClicked: root.showApplications(projectRow.modelData.name)
                                 }
-                                ToolbarAction {
+                                DetailTab {
+                                    projectName: projectRow.modelData.name
+                                    viewName: "snapshots"
                                     objectName: "showProjectSnapshots-" + projectRow.modelData.name
                                     text: "Snapshots"; iconText: "󰆼"
-                                    selected: root.selectedName === projectRow.modelData.name
-                                    tooltipText: "Database snapshots"
-                                    enabled: !projectRow.busy
+                                    tooltipText: selected ? "Close snapshots" : "Open database snapshots"
+                                    enabled: selected || !projectRow.busy
                                     onClicked: root.selectProject(projectRow.modelData.name)
+                                }
+                                Rectangle {
+                                    Layout.preferredWidth: 1
+                                    Layout.preferredHeight: Style.space(20)
+                                    Layout.leftMargin: Style.space(3)
+                                    Layout.rightMargin: Style.space(3)
+                                    Layout.alignment: Qt.AlignVCenter
+                                    color: Util.alpha(root.foreground, 0.2)
                                 }
                                 ToolbarAction {
                                     objectName: "openProjectMailpit-" + projectRow.modelData.name
@@ -719,7 +758,7 @@ Panel {
                                 visible: root.domainProject === projectRow.modelData.name
                                 RowLayout {
                                     width: parent.width
-                                    Label { text: "Project domains"; font.bold: true; Layout.fillWidth: true }
+                                    Label { text: "Project domains"; color: Commons.Color.accent; font.bold: true; Layout.fillWidth: true }
                                     IconAction { iconText: "󰑐"; tooltipText: "Refresh domains"; enabled: !projectRow.busy; onClicked: root.execute("domains", projectRow.modelData.name, "") }
                                     ToolbarAction {
                                         objectName: "openAllDomains-" + projectRow.modelData.name
@@ -763,7 +802,7 @@ Panel {
                                 width: parent.width
                                 spacing: Style.space(8)
                                 visible: root.applicationProject === projectRow.modelData.name
-                                Label { text: "Containers"; font.bold: true }
+                                Label { text: "Containers"; color: Commons.Color.accent; font.bold: true }
                                 Label { width: parent.width; text: root.monitorWarning; visible: text !== ""; wrapMode: Text.Wrap; color: root.progress }
                                 Label { text: "No containers found. Start the project to create them."; visible: projectRow.serviceContainers.length === 0; width: parent.width; wrapMode: Text.Wrap; color: root.muted }
                                 Repeater {
@@ -800,10 +839,10 @@ Panel {
                             Column {
                                 width: parent.width
                                 spacing: Style.space(8)
-                                visible: !!root.logFor(projectRow.modelData.name).open
+                                visible: root.isDetail(projectRow.modelData.name, "logs") && !!root.logFor(projectRow.modelData.name).open
                                 RowLayout {
                                     width: parent.width
-                                    Label { text: "Project logs"; Layout.fillWidth: true; elide: Text.ElideRight; font.bold: true }
+                                    Label { text: "Project logs"; color: Commons.Color.accent; Layout.fillWidth: true; elide: Text.ElideRight; font.bold: true }
                                     Action { text: "Live"; selected: !!root.logFor(projectRow.modelData.name).live; onClicked: root.setLogLive(projectRow.modelData.name, !root.logFor(projectRow.modelData.name).live) }
                                     IconAction { iconText: "󰑐"; tooltipText: "Refresh logs"; onClicked: root.stopLog(projectRow.modelData.name, true) }
                                     IconAction { objectName: "closeProjectLogs-" + projectRow.modelData.name; iconText: "󰅖"; tooltipText: "Close log viewer"; onClicked: root.closeLog(projectRow.modelData.name) }
@@ -839,7 +878,7 @@ Panel {
                                 visible: root.selectedName === projectRow.modelData.name
                                 RowLayout {
                                     width: parent.width
-                                    Label { text: "Database snapshots"; font.bold: true; Layout.fillWidth: true }
+                                    Label { text: "Database snapshots"; color: Commons.Color.accent; font.bold: true; Layout.fillWidth: true }
                                     IconAction { iconText: "󰅖"; tooltipText: "Close snapshots"; enabled: !projectRow.busy; onClicked: root.selectProject(projectRow.modelData.name) }
                                 }
                                 RowLayout {
@@ -995,9 +1034,25 @@ Panel {
         implicitHeight: Style.space(32)
         Layout.minimumWidth: implicitWidth
         Layout.alignment: Qt.AlignVCenter
-        horizontalPadding: Style.space(8)
+        horizontalPadding: Style.space(7)
         verticalPadding: 0
         iconSize: Style.space(14)
+    }
+    component DetailTab: ToolbarAction {
+        id: detailTab
+        property string projectName: ""
+        property string viewName: ""
+        selected: root.isDetail(projectName, viewName)
+        foreground: selected ? Commons.Color.accent : root.foreground
+        color: selected ? Util.alpha(Commons.Color.accent, 0.24) : (hot || activeFocus ? Util.alpha(root.foreground, 0.08) : "transparent")
+        borderSpec: Border.flat(selected || activeFocus ? Commons.Color.accent : Util.alpha(root.foreground, 0.2), 1)
+        Rectangle {
+            visible: detailTab.selected
+            anchors { left: parent.left; right: parent.right; bottom: parent.bottom; leftMargin: Style.space(7); rightMargin: Style.space(7); bottomMargin: Style.space(2) }
+            height: Style.space(3)
+            radius: height / 2
+            color: Commons.Color.accent
+        }
     }
     component IconAction: Action {
         implicitWidth: Style.space(32)

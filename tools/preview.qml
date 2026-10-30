@@ -27,17 +27,18 @@ ShellRoot {
         }
         panel.applyInventory(demoContainers, false)
         if (scene === "domains") {
-            panel.domainProject = "storefront"
+            panel.activateDetail("storefront", "domains")
             panel.updateDomains("storefront", {items: [
                 {url: "https://storefront.ddev.site", host: "storefront.ddev.site", primary: true},
                 {url: "https://admin.storefront.ddev.site", host: "admin.storefront.ddev.site", primary: false},
                 {url: "https://shop.example.test", host: "shop.example.test", primary: false}
             ], error: ""})
         }
-        if (scene === "applications") panel.applicationProject = "storefront"
+        if (scene === "applications") panel.activateDetail("storefront", "containers")
+        if (scene === "logs") panel.activateDetail("storefront", "logs")
         if (scene === "logs") panel.updateLog("storefront", {open: true, live: true, expanded: true, error: "", text: "[web] 2026-01-01T12:00:00Z Web server ready\n[db] 2026-01-01T12:00:01Z Database ready\n[web] 2026-01-01T12:00:02Z GET /assets/app.css 200\n[web] 2026-01-01T12:00:05Z GET /api/products 200"})
         if (scene === "snapshots") {
-            panel.selectedName = "storefront"
+            panel.activateDetail("storefront", "snapshots")
             panel.snapshots = [
                 {name: "before-release-mariadb_11.8.zst", path: "/example/snapshots/before-release-mariadb_11.8.zst", size: 48234496, modified: 1768471200},
                 {name: "baseline-mariadb_11.8.zst", path: "/example/snapshots/baseline-mariadb_11.8.zst", size: 36700160, modified: 1768384800}
