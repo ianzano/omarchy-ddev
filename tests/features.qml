@@ -128,9 +128,11 @@ ShellRoot {
             var root = plugin.item
             test.check(!root.busy, "MANAGED_START_COMPLETED")
             root.flushAlerts()
-            test.check(root.testAlerts.length === 5, "START_SUCCESS_WAITING_FOR_HEALTH")
+            test.check(root.testAlerts.length === 6 && root.testAlerts[5].kind === "started", "START_SUCCESS_NOTIFIED_AT_COMMAND_COMPLETION")
             root.receiveEvent(test.event("health_status: healthy"))
             root.receiveEvent(test.event("health_status: healthy", "db"))
+            root.flushAlerts()
+            root.applyInventory(test.inventory("running", "healthy"), true)
             root.flushAlerts()
             test.check(root.testAlerts.length === 6 && root.testAlerts[5].title === "Project started", "SINGLE_MANAGED_PROJECT_STARTED_NOTIFICATION")
             console.log("FEATURE_CHECKS_PASSED")

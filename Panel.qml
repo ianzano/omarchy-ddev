@@ -126,7 +126,9 @@ Panel {
         reader.running = true
     }
     function refreshContainers() {
-        if (!monitoringEnabled || !projectsLoaded || monitor.running) return
+        if (!monitoringEnabled || !projectsLoaded) return
+        if (monitor.running) { monitor.recheckRequested = true; return }
+        monitor.recheckRequested = false
         monitor.command = ["python3", bridge, "monitor"].concat(opened && applicationProject ? ["stats"] : [])
         monitor.eventVersion = Monitoring.eventVersion
         monitor.running = true
@@ -267,7 +269,8 @@ Panel {
     implicitHeight: button.implicitHeight
 
     function refresh() {
-        if (!listing.running) listing.running = true
+        if (listing.running) listing.recheckRequested = true
+        else { listing.recheckRequested = false; listing.running = true }
         refreshContainers()
     }
     function execute(action, name, extra) {
@@ -285,6 +288,7 @@ Panel {
         clockNow = Date.now()
         if (["snapshots", "domains"].indexOf(action) < 0 && !isCommandRead(action)) updateOutput(name, {text: "", message: "", failed: false, action: action, expanded: false, open: true, dismissed: false})
         Monitoring.beginning(name, action)
+        if (action === "poweroff") projects.forEach(p => Monitoring.beginning(p.name, "stop"))
         job.running = true
         return true
     }
@@ -304,9 +308,9 @@ Panel {
             updateOutput(job.projectName, {failed: failed, open: failed, expanded: failed,
                 dismissed: failed ? false : !!outputFor(job.projectName).dismissed})
         }
-        Monitoring.completed(job.projectName, job.actionName, !job.commandFailed)
-        if (job.actionName === "poweroff" && !job.commandFailed)
-            for (var i = 0; i < projects.length; i++) Monitoring.completed(projects[i].name, "stop", true)
+        announce(Monitoring.completed(job.projectName, job.actionName, !job.commandFailed && exitCode === 0))
+        if (job.actionName === "poweroff")
+            for (var i = 0; i < projects.length; i++) announce(Monitoring.completed(projects[i].name, "stop", !job.commandFailed && exitCode === 0))
         var next = Object.assign({}, jobs)
         delete next[job.projectName]
         jobs = next
@@ -354,6 +358,8 @@ Panel {
     }
     Process {
         id: listing
+        property bool recheckRequested: false
+        onExited: if (recheckRequested) Qt.callLater(root.refresh)
         command: ["python3", root.bridge, "list"]
         stdout: StdioCollector {
             onStreamFinished: {
@@ -369,6 +375,8 @@ Panel {
     Process {
         id: monitor
         property int eventVersion: 0
+        property bool recheckRequested: false
+        onExited: if (recheckRequested) Qt.callLater(root.refreshContainers)
         stdout: StdioCollector {
             onStreamFinished: {
                 try {
