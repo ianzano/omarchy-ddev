@@ -19,6 +19,8 @@ with tempfile.TemporaryDirectory(prefix='ddev-ui-check-') as directory:
     # Test-only access to visual descendants, kept out of the installed plugin.
     source = source.replace('    id: root\n', '''    id: root
     property var testAlerts: []
+    property var testNotifications: ({})
+    property bool testAlertTransport: false
     function testFlushEarly() { announce(Monitoring.flush([], Date.now())) }
     function testFind(name, node) {
         node = node || content
@@ -32,11 +34,14 @@ with tempfile.TemporaryDirectory(prefix='ddev-ui-check-') as directory:
 ''', 1)
     source = source.replace('announce(Monitoring.flush(blocked))', 'announce(Monitoring.flush(blocked, Date.now() + 2100))')
     source = source.replace('    function announce(alerts) {', '    function announce(alerts) {\n        testAlerts = testAlerts.concat(alerts)')
+    source = source.replace('if (!monitoringEnabled || !alertsEnabled) return', 'if ((!monitoringEnabled && !testAlertTransport) || !alertsEnabled) return')
+    source = source.replace('property var payload: []', 'property var payload: []\n            stdout: StdioCollector { onStreamFinished: root.testNotifications = JSON.parse(text) }')
+    (root / 'plugin/notifications.py').write_text('import json,sys\ndata=json.load(sys.stdin)\nprint(json.dumps({"alerts":data,"argv":sys.argv[1:]}))\n')
     (root / 'plugin/Panel.qml').write_text(source)
     env = os.environ.copy()
     env['QT_QPA_PLATFORM'] = 'wayland'
     env['QT_QPA_PLATFORMTHEME'] = ''
-    for suite, fixture, marker in (('concurrency', 'concurrency', 'CONCURRENCY_CHECKS_PASSED'), ('features', 'features', 'FEATURE_CHECKS_PASSED'), ('log_reentry', 'features', 'LOG_REENTRY_CHECKS_PASSED'), ('domains', 'features', 'DOMAINS_CHECKS_PASSED'), ('tabs', 'features', 'TABS_CHECKS_PASSED'), ('stopped', 'features', 'STOPPED_CHECKS_PASSED'), ('shortcuts', 'shortcuts', 'SHORTCUTS_CHECKS_PASSED')):
+    for suite, fixture, marker in (('concurrency', 'concurrency', 'CONCURRENCY_CHECKS_PASSED'), ('features', 'features', 'FEATURE_CHECKS_PASSED'), ('log_reentry', 'features', 'LOG_REENTRY_CHECKS_PASSED'), ('domains', 'features', 'DOMAINS_CHECKS_PASSED'), ('tabs', 'features', 'TABS_CHECKS_PASSED'), ('stopped', 'features', 'STOPPED_CHECKS_PASSED'), ('shortcuts', 'shortcuts', 'SHORTCUTS_CHECKS_PASSED'), ('notifications', 'features', 'NOTIFICATIONS_CHECKS_PASSED')):
         shutil.copy2(project / ('tests/' + fixture + '_backend.py'), root / 'plugin/backend.py')
         shutil.copy2(project / ('tests/' + suite + '.qml'), root / 'shell.qml')
         result = subprocess.run(['quickshell', '-p', str(root / 'shell.qml')], env=env,

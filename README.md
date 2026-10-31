@@ -39,7 +39,7 @@ Previews render the actual plugin interface with fictional projects, paths, snap
 
 ## Install
 
-Requires Omarchy's Quickshell bar, Python 3, DDEV, Docker, `xdg-open`, and `notify-send` (libnotify) for desktop alerts.
+Requires Omarchy's Quickshell bar, Python 3, DDEV, Docker, `xdg-open`, and `python-gobject` (PyGObject with Gio/GLib) for desktop alerts.
 
 Install directly with Omarchy:
 
@@ -116,6 +116,8 @@ For a manual installation, remove the `ianzano.ddev` entry from the bar layout i
 
 ## Validation
 
+Notification tests run the real helper against a notification service on an isolated session bus, inspect its `/proc` command line for payload exposure, and verify stdin transport, urgency, Unicode, disabled alerts, and redacted failure handling.
+
 Shortcut tests verify project isolation, save/edit/remove, quoted command arguments, running-state checks, snapshot deletion boundaries, symlink handling, and snapshot folder opening. UI checks cover shortcut buttons and deletion confirmation/cancellation.
 
 Backend tests verify output arrives before a command finishes, merged stderr, Unicode, command exit codes, streaming timeouts, safe stop arguments, command failures, invalid names, unregistered projects, restore path validation, symlinked project config, and unavailable Docker status. The QML component was loaded using the installed Quickshell runtime. No live start/stop, snapshot creation, or database restore is needed for these checks.
@@ -124,7 +126,7 @@ Container tests verify Docker label scoping, bounded logs, stats failures, and s
 
 ## Local data
 
-The repository contains source code and synthetic test fixtures. Project names, paths, environment values, database snapshots, and command output are discovered on the user's machine at runtime. The plugin has no telemetry or upload code; command output and combined project logs remain in memory for the shell session. Lifecycle alerts are delivered through the local desktop notification daemon. Container discovery reads selected state and label fields, not container environment values. Environment variables are passed locally to child processes and are not written to the repository. Local environment files, runtime configs, logs, backups, and snapshot directories are excluded by `.gitignore`.
+The repository contains source code and synthetic test fixtures. Project names, paths, environment values, database snapshots, and command output are discovered on the user's machine at runtime. The plugin has no telemetry or upload code; command output and combined project logs remain in memory for the shell session. Lifecycle alerts are delivered directly over the session D-Bus to the local notification daemon. A fixed Python helper receives alert text through a private stdin pipe; project and service names are never placed in notification process arguments, environment variables, temporary files, or error diagnostics. There is no CLI fallback. Alert details remain visible to the notification daemon and may be retained in its history. Container discovery reads selected state and label fields, not container environment values. Environment variables are passed locally to child processes and are not written to the repository. Local environment files, runtime configs, logs, backups, and snapshot directories are excluded by `.gitignore`.
 
 ## License
 

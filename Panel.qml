@@ -139,12 +139,28 @@ Panel {
     }
     function announce(alerts) {
         if (!monitoringEnabled || !alertsEnabled) return
-        for (var i = 0; i < alerts.length; i++) {
-            var alert = alerts[i]
-            if (!projects.some(p => p.name === alert.project)) continue
-            Quickshell.execDetached(["notify-send", "--app-name=DDEV Projects", "--urgency=" + (alert.kind === "unhealthy" ? "critical" : "normal"), "--", alert.title, alert.project + (alert.detail ? " · " + alert.detail : "")])
+        var selected = alerts.filter(alert => projects.some(p => p.name === alert.project))
+        if (!selected.length) return
+        var sender = notificationFactory.createObject(root, {payload: selected})
+        if (sender) sender.running = true
+    }
+    property string notificationWarning: ""
+    Component {
+        id: notificationFactory
+        Process {
+            id: sender
+            property var payload: []
+            command: ["python3", Qt.resolvedUrl("notifications.py").toString().replace(/^file:\/\//, "")]
+            stdinEnabled: true
+            onStarted: { write(JSON.stringify(payload)); stdinEnabled = false; payload = [] }
+            onExited: function(code, status) {
+                root.notificationWarning = code === 0 ? "" : "Desktop alerts could not be delivered. Check the notification service and Python GObject dependency."
+                Qt.callLater(function() { sender.destroy() })
+            }
+            property Timer watchdog: Timer { interval: 10000; running: sender.running; onTriggered: sender.running = false }
         }
     }
+
     function applyInventory(items, announceChanges) {
         containers = items.filter(c => projects.some(p => p.name === c.project))
         if (announceChanges) announce(Monitoring.inventory(containers, true, projects))
@@ -623,6 +639,13 @@ Panel {
                     width: parent.width
                     visible: root.settingsOpen && root.eventWarning !== ""
                     text: root.eventWarning
+                    color: root.progress
+                    wrapMode: Text.Wrap
+                }
+                Label {
+                    width: parent.width
+                    visible: text !== ""
+                    text: root.notificationWarning
                     color: root.progress
                     wrapMode: Text.Wrap
                 }
