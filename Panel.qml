@@ -529,7 +529,7 @@ Panel {
             spacing: Style.space(6)
             Image {
                 objectName: "ddevBarIcon"
-                width: Style.space(22); height: Style.space(22)
+                width: Style.bar.iconCanvas; height: Style.bar.iconCanvas
                 source: Qt.resolvedUrl("ddev.svg")
                 sourceSize: Qt.size(width, height)
                 fillMode: Image.PreserveAspectFit
@@ -540,7 +540,7 @@ Panel {
                 color: button.foreground
                 font.family: button.fontFamily; font.pixelSize: button.fontSize
                 textFormat: Text.PlainText
-                height: Math.max(implicitHeight, Style.space(22))
+                height: Math.max(implicitHeight, Style.bar.iconCanvas)
                 verticalAlignment: Text.AlignVCenter
             }
         }
