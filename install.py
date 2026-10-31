@@ -16,7 +16,7 @@ destination = omarchy / 'plugins' / plugin_id
 stamp = datetime.now().strftime('%Y%m%d-%H%M%S-%f')
 # Validate the existing configuration and source before changing either.
 settings = json.loads(config.read_text()) if config.exists() else {'version': 1}
-runtime_files = ('backend.py', 'notifications.py', 'Monitoring.js', manifest['entryPoints']['barWidget'], 'manifest.json')
+runtime_files = ('backend.py', 'notifications.py', 'Monitoring.js', 'ddev.svg', 'DDEV-LOGO-LICENSE', manifest['entryPoints']['barWidget'], 'manifest.json')
 for filename in runtime_files:
     if not (source / filename).is_file():
         raise SystemExit('Missing plugin file: ' + filename)

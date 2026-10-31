@@ -506,7 +506,32 @@ Panel {
         id: button
         anchors.fill: parent
         bar: root.bar
-        text: (root.busy ? "󰔟 " : "󰡨 ") + (root.warning ? "?" : root.runningCount) + "/" + root.projects.length
+        text: (root.busy ? "󰔟 " : "") + (root.warning ? "?" : root.runningCount) + "/" + root.projects.length
+        labelVisible: false
+        implicitWidth: vertical ? barSize : brandLabel.implicitWidth + scaledHorizontalMargin * 2
+        implicitHeight: vertical ? brandLabel.implicitHeight + scaledVerticalPadding * 2 : barSize
+        Grid {
+            id: brandLabel
+            anchors.centerIn: parent
+            columns: button.vertical ? 1 : 2
+            spacing: Style.space(6)
+            Image {
+                objectName: "ddevBarIcon"
+                width: Style.space(22); height: Style.space(22)
+                source: Qt.resolvedUrl("ddev.svg")
+                sourceSize: Qt.size(width, height)
+                fillMode: Image.PreserveAspectFit
+                smooth: true
+            }
+            Text {
+                text: button.text
+                color: button.foreground
+                font.family: button.fontFamily; font.pixelSize: button.fontSize
+                textFormat: Text.PlainText
+                height: Math.max(implicitHeight, Style.space(22))
+                verticalAlignment: Text.AlignVCenter
+            }
+        }
         onPressed: function(code) { if (code === Qt.MiddleButton) root.refresh(); else root.toggle() }
     }
     KeyboardPanel {
@@ -545,7 +570,7 @@ Panel {
                         implicitWidth: Style.space(44); implicitHeight: implicitWidth
                         Layout.alignment: Qt.AlignVCenter
                         radius: Style.space(10); color: Util.alpha(Commons.Color.accent, 0.12)
-                        Label { anchors.centerIn: parent; text: "󰡨"; font.pixelSize: Style.space(25); color: Commons.Color.accent }
+                        Image { objectName: "ddevHeaderIcon"; anchors.centerIn: parent; width: Style.space(30); height: Style.space(30); source: Qt.resolvedUrl("ddev.svg"); sourceSize: Qt.size(width, height); fillMode: Image.PreserveAspectFit; smooth: true }
                     }
                     ColumnLayout {
                         Layout.fillWidth: true

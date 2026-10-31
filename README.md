@@ -1,6 +1,6 @@
 # DDEV Projects for Omarchy
 
-Native Quickshell taskbar plugin. Click the Docker icon and running/registered count beside the system tray.
+Native Quickshell taskbar plugin. Click the DDEV icon and running/registered count beside the system tray.
 
 ![DDEV project overview with per-project controls](preview.png)
 
@@ -131,6 +131,8 @@ The repository contains source code and synthetic test fixtures. Project names, 
 ## License
 
 [MIT](LICENSE) © 2026 ianzano.
+
+The unmodified DDEV icon (`ddev.svg`) comes from the [official DDEV brand assets](https://github.com/ddev/ddev/blob/main/docs/content/developers/logos/SVG/Logo.svg). Its upstream Apache 2.0 license is included in [DDEV-LOGO-LICENSE](DDEV-LOGO-LICENSE). DDEV branding belongs to its respective owners.
 
 ## Publishing
 

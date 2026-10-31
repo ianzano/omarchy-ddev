@@ -27,6 +27,7 @@ with tempfile.TemporaryDirectory(prefix='omarchy-ddev-preview-') as directory:
     source = (PROJECT / 'Panel.qml').read_text()
     source = source.replace('property bool monitoringEnabled: true', 'property bool monitoringEnabled: false')
     shutil.copy2(PROJECT / 'Monitoring.js', root / 'plugin/Monitoring.js')
+    shutil.copy2(PROJECT / 'ddev.svg', root / 'plugin/ddev.svg')
     # Keep the actual panel content. Replace only its native layer-shell host
     # so it can render headlessly into an isolated Qt window.
     source = source.replace('    id: root\n', '''    id: root
@@ -47,7 +48,8 @@ with tempfile.TemporaryDirectory(prefix='omarchy-ddev-preview-') as directory:
     }
 ''', 1)
     source = source.replace('    KeyboardPanel {', '    PreviewPanel {', 1)
-    source = source.replace('if (!listing.running) listing.running = true', 'return // Preview mode never launches a backend')
+    assert '    function refresh() {' in source
+    source = source.replace('    function refresh() {', '    function refresh() {\n        return // Preview mode never launches a backend', 1)
     source = source.replace('        id: button\n', '        id: button\n        visible: false\n', 1)
     (root / 'plugin/Panel.qml').write_text(source)
     (root / 'shell.qml').write_text((PROJECT / 'tools/preview.qml').read_text())

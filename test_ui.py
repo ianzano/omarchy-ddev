@@ -16,6 +16,7 @@ with tempfile.TemporaryDirectory(prefix='ddev-ui-check-') as directory:
     source = source.replace('property bool monitoringEnabled: true', 'property bool monitoringEnabled: false')
     source = source.replace('var follow = opened && view.live', 'var follow = view.live')
     shutil.copy2(project / 'Monitoring.js', root / 'plugin/Monitoring.js')
+    shutil.copy2(project / 'ddev.svg', root / 'plugin/ddev.svg')
     # Test-only access to visual descendants, kept out of the installed plugin.
     source = source.replace('    id: root\n', '''    id: root
     property var testAlerts: []

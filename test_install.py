@@ -31,6 +31,8 @@ class InstallerTests(unittest.TestCase):
         self.assertTrue((plugin / 'backend.py').is_file())
         self.assertTrue((plugin / 'notifications.py').is_file())
         self.assertTrue((plugin / 'Monitoring.js').is_file())
+        self.assertTrue((plugin / 'ddev.svg').is_file())
+        self.assertTrue((plugin / 'DDEV-LOGO-LICENSE').is_file())
         self.assertEqual(config['bar']['layout']['right'][1]['id'], 'ianzano.ddev')
 
     def test_reinstall_preserves_placement_settings_and_other_config(self):
