@@ -8,6 +8,13 @@ ShellRoot {
         interval: 400; running: true
         onTriggered: {
             var root = plugin.item
+            root.applyInventory([{project: "stopped", service: "admin", id: "stale", state: "running", health: "unhealthy"}], false)
+            test.check(root.testFind("projectStatus-stopped").text === "Stopped" && !root.testFind("projectCard-stopped").unhealthy, "STOPPED_PROJECT_IGNORES_CACHED_RUNNING_UNHEALTHY_SERVICE")
+            root.applyInventory([{project: "stopped", service: "admin", id: "stale", state: "paused", health: "unhealthy"}], false)
+            test.check(root.testFind("projectStatus-stopped").text === "Stopped" && !root.testFind("projectCard-stopped").hasPaused, "STOPPED_PROJECT_IGNORES_CACHED_PAUSED_SERVICE")
+            root.applyInventory([{project: "demo", service: "admin", id: "active", state: "exited", health: "unhealthy"}], false)
+            test.check(!root.testFind("projectCard-demo").unhealthy, "EXITED_SERVICE_IS_NOT_A_RUNNING_HEALTH_FAILURE")
+            root.applyInventory([], false)
             var actions = ["openProjectSite", "openProjectLogs", "showProjectContainers", "openProjectMailpit", "restartProject"]
             for (var i = 0; i < actions.length; i++) {
                 var button = root.testFind(actions[i] + "-stopped")

@@ -23,6 +23,7 @@ Panel {
     }
     property var projects: []
     property bool projectsLoaded: false
+    property int statusRevision: 0
     property var snapshots: []
     property bool monitoringEnabled: true
     property bool alertsEnabled: Boolean(setting("alertsEnabled", true))
@@ -308,6 +309,13 @@ Panel {
             updateOutput(job.projectName, {failed: failed, open: failed, expanded: failed,
                 dismissed: failed ? false : !!outputFor(job.projectName).dismissed})
         }
+        if (!job.commandFailed && exitCode === 0 && ["start", "restart", "stop", "poweroff"].indexOf(job.actionName) >= 0) {
+            statusRevision++
+            var all = job.actionName === "poweroff"
+            var status = job.actionName === "stop" || all ? "stopped" : "running"
+            projects = projects.map(p => all || p.name === job.projectName ? Object.assign({}, p, {status: status}) : p)
+            containers = containers.filter(c => !all && c.project !== job.projectName)
+        }
         announce(Monitoring.completed(job.projectName, job.actionName, !job.commandFailed && exitCode === 0))
         if (job.actionName === "poweroff")
             for (var i = 0; i < projects.length; i++) announce(Monitoring.completed(projects[i].name, "stop", !job.commandFailed && exitCode === 0))
@@ -358,6 +366,8 @@ Panel {
     }
     Process {
         id: listing
+        property int revision: 0
+        onStarted: revision = root.statusRevision
         property bool recheckRequested: false
         onExited: if (recheckRequested) Qt.callLater(root.refresh)
         command: ["python3", root.bridge, "list"]
@@ -365,6 +375,7 @@ Panel {
             onStreamFinished: {
                 try {
                     var data = JSON.parse(text)
+                    if (listing.revision !== root.statusRevision) { listing.recheckRequested = true; return }
                     if (data.ok) { root.projects = data.projects; root.projectsLoaded = true; Monitoring.register(root.projects); root.warning = data.warning || ""; root.refreshContainers() }
                     else root.warning = data.message
                 } catch (error) { root.warning = "Could not read DDEV status: " + error }
@@ -383,7 +394,8 @@ Panel {
                     var data = JSON.parse(text)
                     if (data.ok) {
                         root.monitorWarning = data.warning || ""
-                        root.applyInventory(data.containers || [], monitor.eventVersion === Monitoring.eventVersion)
+                        if (monitor.eventVersion !== Monitoring.eventVersion) { monitor.recheckRequested = true; return }
+                        root.applyInventory(data.containers || [], true)
                     } else root.monitorWarning = data.message || "Container monitoring is unavailable"
                 } catch (error) { root.monitorWarning = "Could not read container status" }
             }
@@ -705,8 +717,8 @@ Panel {
                         id: projectRow
                         objectName: "projectCard-" + modelData.name
                         readonly property var serviceContainers: root.containersFor(modelData.name)
-                        readonly property bool hasPaused: serviceContainers.some(c => c.state === "paused")
-                        readonly property bool unhealthy: serviceContainers.some(c => c.health === "unhealthy" && c.state === "running")
+                        readonly property bool hasPaused: running && serviceContainers.some(c => c.state === "paused")
+                        readonly property bool unhealthy: running && serviceContainers.some(c => c.health === "unhealthy" && c.state === "running")
                         readonly property var consoleState: root.outputFor(modelData.name)
                         readonly property bool consoleBusy: !!root.jobs[modelData.name] && ["snapshots", "domains"].indexOf(root.actionFor(modelData.name)) < 0 && !root.isCommandRead(root.actionFor(modelData.name))
                         required property var modelData
@@ -741,7 +753,7 @@ Panel {
                                     Layout.minimumWidth: 0
                                     spacing: Style.space(2)
                                     Label { Layout.fillWidth: true; elide: Text.ElideRight; text: projectRow.modelData.name; font.bold: true; font.pixelSize: Style.font.subtitle }
-                                    Label { Layout.fillWidth: true; elide: Text.ElideRight; text: projectRow.busy ? root.actionLabelFor(root.actionFor(projectRow.modelData.name)) + "… · " + root.elapsedFor(projectRow.modelData.name) + " s" : (projectRow.hasPaused ? "Paused services" : projectRow.unhealthy ? "Unhealthy services" : projectRow.running ? "Running" : projectRow.modelData.status === "stopped" ? "Stopped" : projectRow.modelData.status); color: projectRow.statusColor; font.pixelSize: Style.font.caption }
+                                    Label { objectName: "projectStatus-" + projectRow.modelData.name; Layout.fillWidth: true; elide: Text.ElideRight; text: projectRow.busy ? root.actionLabelFor(root.actionFor(projectRow.modelData.name)) + "… · " + root.elapsedFor(projectRow.modelData.name) + " s" : (projectRow.hasPaused ? "Paused services" : projectRow.unhealthy ? "Unhealthy services" : projectRow.running ? "Running" : projectRow.modelData.status === "stopped" ? "Stopped" : projectRow.modelData.status); color: projectRow.statusColor; font.pixelSize: Style.font.caption }
                                 }
                                 Label { text: projectRow.modelData.type; color: root.muted; font.pixelSize: Style.font.caption }
                                 }
@@ -917,7 +929,7 @@ Panel {
                                         RowLayout {
                                             anchors { fill: parent; leftMargin: Style.space(8); rightMargin: Style.space(5) }
                                             spacing: Style.space(8)
-                                            Rectangle { width: Style.space(6); height: width; radius: width / 2; color: serviceRow.modelData.state === "paused" ? root.progress : serviceRow.modelData.health === "unhealthy" ? Commons.Color.urgent : serviceRow.modelData.state === "running" ? root.success : root.muted }
+                                            Rectangle { width: Style.space(6); height: width; radius: width / 2; color: serviceRow.modelData.state === "paused" ? root.progress : serviceRow.modelData.state === "running" && serviceRow.modelData.health === "unhealthy" ? Commons.Color.urgent : serviceRow.modelData.state === "running" ? root.success : root.muted }
                                             Label { text: serviceRow.modelData.service; Layout.preferredWidth: Style.space(55); elide: Text.ElideRight; font.bold: true; font.pixelSize: Style.font.caption }
                                             Label { text: serviceRow.modelData.state === "running" ? serviceRow.modelData.health || "running" : serviceRow.modelData.state; Layout.fillWidth: true; Layout.minimumWidth: 0; elide: Text.ElideRight; color: root.muted; font.pixelSize: Style.font.caption }
                                             Label {

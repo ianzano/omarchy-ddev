@@ -35,7 +35,7 @@ Previews render the actual plugin interface with fictional projects, paths, snap
 - Save named DDEV command shortcuts per project; run them from compact buttons, with streamed output and an optional Edit mode.
 - Open the snapshot folder or delete individual snapshots after confirmation, including while stopped.
 - Restore a selected snapshot after explicit confirmation that the current database will be replaced.
-- Per-project animated spinners and elapsed time during operations. Snapshots and live stdout/stderr appear inside the corresponding project card. Each project keeps its own console output for the shell session. A compact preview shows the latest six lines; **Show all output** expands the card, using only the main panel scrollbar. Shows errors and command output. Docker connectivity errors produce an unknown status rather than a misleading stopped status.
+- Per-project animated spinners and elapsed time during operations. Snapshots and live stdout/stderr appear inside the corresponding project card. Each project keeps its own console output for the shell session. A compact preview shows the latest six lines; **Show all output** expands the card, using only the main panel scrollbar. Shows errors and command output. Docker connectivity errors produce an unknown status rather than a misleading stopped status. Stopped projects never inherit unhealthy/paused labels from cached service data. Successful lifecycle commands immediately update the project status and clear stale service observations; status reads launched before completion are discarded and refreshed.
 
 ## Install
 

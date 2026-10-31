@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "ianzano.ddev",
   "name": "DDEV Projects",
-  "version": "1.21.0",
+  "version": "1.22.0",
   "author": "ianzano",
   "license": "MIT",
   "description": "DDEV projects, multiple domains, combined live logs, compact stats, project alerts, command shortcuts, and database snapshots.",
