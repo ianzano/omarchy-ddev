@@ -1151,7 +1151,6 @@ Panel {
                                 visible: !projectRow.consoleState.dismissed && (!!projectRow.consoleState.action || !!projectRow.consoleState.message)
                                 RowLayout {
                                     width: parent.width
-                                    Spinner { visible: projectRow.consoleBusy; tint: root.progress }
                                     Label {
                                         visible: !projectRow.consoleBusy
                                         text: projectRow.consoleState.failed ? "󰅚" : "󰄬"
@@ -1159,7 +1158,7 @@ Panel {
                                     }
                                     Label {
                                         Layout.fillWidth: true
-                                        text: projectRow.consoleBusy ? root.actionLabelFor(root.actionFor(projectRow.modelData.name)) + "… · " + root.elapsedFor(projectRow.modelData.name) + " s" : projectRow.consoleState.message || "Console"
+                                        text: projectRow.consoleBusy ? "Command output" : projectRow.consoleState.message || "Console"
                                         color: projectRow.consoleState.failed ? Commons.Color.urgent : root.foreground
                                         elide: Text.ElideRight
                                         font.pixelSize: Style.font.caption
