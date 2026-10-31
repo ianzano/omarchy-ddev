@@ -8,6 +8,9 @@ var dirty = ({})
 var forced = ({})
 var pendingAt = ({})
 var eventVersion = 0
+var startupUntil = ({})
+var warmingUntil = ({})
+var startupGraceMs = 60000
 
 function key(project, service) { return project + "\n" + service }
 
@@ -43,6 +46,10 @@ function inventory(containers, announce, registered) {
         var container = containers[i]
         var identity = key(container.project, container.service)
         found[identity] = true
+        var previous = states[identity]
+        if (container.state === "running" && (container.health === "starting" || (previous && (previous.id !== container.id || ["exited", "dead", "missing"].indexOf(previous.state) >= 0))) && !warmingUntil[identity])
+            warmingUntil[identity] = Date.now() + startupGraceMs
+        if (container.health === "healthy") delete warmingUntil[identity]
         states[identity] = Object.assign({}, container)
     }
     var identities = Object.keys(states)
@@ -65,6 +72,14 @@ function event(event, announce, registered) {
     register(registered)
     var identity = key(event.project, event.service)
     var previous = states[identity] || {}
+    // Old containers can emit die/health events after their replacement starts.
+    if (previous.id && event.id && previous.id !== event.id && event.action !== "start") return []
+    if (event.action === "start") {
+        if (!warmingUntil[identity]) warmingUntil[identity] = Date.now() + startupGraceMs
+        if ((projects[event.project] === "stopped" || projects[event.project] === "unknown") && !startupUntil[event.project])
+            startupUntil[event.project] = Date.now() + startupGraceMs
+    }
+    if (event.action === "health_status: healthy") delete warmingUntil[identity]
     var state = event.action === "die" ? "exited" : "running"
     var health = event.action === "start" ? "starting" : previous.health || ""
     if (event.action === "health_status: unhealthy") health = "unhealthy"
@@ -74,14 +89,26 @@ function event(event, announce, registered) {
     return []
 }
 
+function beginning(name, action) {
+    if (action === "start" || action === "restart") startupUntil[name] = Date.now() + startupGraceMs
+}
+
 function completed(name, action, success) {
-    if (!success || ["start", "restart", "stop"].indexOf(action) < 0) return
+    if (["start", "restart", "stop"].indexOf(action) < 0) return
+    if (!success) { delete startupUntil[name]; return }
     markDirty(name, true)
-    if (action === "start" || action === "restart") forced[name] = action === "restart" ? "restarted" : "started"
+    if (action === "start" || action === "restart") {
+        forced[name] = action === "restart" ? "restarted" : "started"
+        startupUntil[name] = Date.now() + startupGraceMs
+    }
     if (action === "stop") {
+        delete startupUntil[name]
         var identities = Object.keys(states)
         for (var i = 0; i < identities.length; i++)
-            if (states[identities[i]].project === name) states[identities[i]].state = "missing"
+            if (states[identities[i]].project === name) {
+                states[identities[i]].state = "missing"
+                delete warmingUntil[identities[i]]
+            }
     }
 }
 
@@ -93,13 +120,23 @@ function flush(blocked, now) {
         var name = names[i]
         if (blocked.indexOf(name) >= 0 || currentTime - pendingAt[name] < 2000) continue
         var current = summary(name)
-        if (current.state === "starting" || (forced[name] && current.state === "stopped")) continue
+        if (current.state === "starting") continue
+        if (forced[name] && current.state === "stopped") {
+            if (currentTime < (startupUntil[name] || 0)) continue
+            current = {state: "unhealthy", affected: Object.keys(states).map(identity => states[identity]).filter(c => c.project === name).map(c => c.service)}
+        }
+        if (current.state === "unhealthy" && current.affected.length && current.affected.every(service =>
+                currentTime < Math.max(startupUntil[name] || 0, warmingUntil[key(name, service)] || 0))) continue
         var old = projects[name]
         var kind = (current.state === "running" ? forced[name] : "") || (current.state === "unhealthy" && old !== "unhealthy" ? "unhealthy" :
             current.state === "stopped" && old !== "stopped" && old !== "unknown" ? "stopped" :
             current.state === "running" && old === "unhealthy" ? "recovered" :
             current.state === "running" && old !== "running" ? "started" : "")
         projects[name] = current.state
+        if (current.state !== "starting") delete startupUntil[name]
+        if (current.state === "stopped") {
+            Object.keys(warmingUntil).forEach(identity => { if (states[identity] && states[identity].project === name) delete warmingUntil[identity] })
+        }
         delete dirty[name]
         delete pendingAt[name]
         delete forced[name]

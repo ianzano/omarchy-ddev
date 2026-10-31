@@ -284,6 +284,7 @@ Panel {
         jobs = next
         clockNow = Date.now()
         if (["snapshots", "domains"].indexOf(action) < 0 && !isCommandRead(action)) updateOutput(name, {text: "", message: "", failed: false, action: action, expanded: false, open: true, dismissed: false})
+        Monitoring.beginning(name, action)
         job.running = true
         return true
     }

@@ -41,7 +41,9 @@ with tempfile.TemporaryDirectory(prefix='ddev-ui-check-') as directory:
     env = os.environ.copy()
     env['QT_QPA_PLATFORM'] = 'wayland'
     env['QT_QPA_PLATFORMTHEME'] = ''
-    for suite, fixture, marker in (('concurrency', 'concurrency', 'CONCURRENCY_CHECKS_PASSED'), ('features', 'features', 'FEATURE_CHECKS_PASSED'), ('log_reentry', 'features', 'LOG_REENTRY_CHECKS_PASSED'), ('domains', 'features', 'DOMAINS_CHECKS_PASSED'), ('tabs', 'features', 'TABS_CHECKS_PASSED'), ('stopped', 'features', 'STOPPED_CHECKS_PASSED'), ('shortcuts', 'shortcuts', 'SHORTCUTS_CHECKS_PASSED'), ('notifications', 'features', 'NOTIFICATIONS_CHECKS_PASSED')):
+    for suite, fixture, marker in (('concurrency', 'concurrency', 'CONCURRENCY_CHECKS_PASSED'), ('features', 'features', 'FEATURE_CHECKS_PASSED'), ('log_reentry', 'features', 'LOG_REENTRY_CHECKS_PASSED'), ('domains', 'features', 'DOMAINS_CHECKS_PASSED'), ('tabs', 'features', 'TABS_CHECKS_PASSED'), ('stopped', 'features', 'STOPPED_CHECKS_PASSED'), ('shortcuts', 'shortcuts', 'SHORTCUTS_CHECKS_PASSED'), ('notifications', 'features', 'NOTIFICATIONS_CHECKS_PASSED'), ('startup_alerts', 'features', 'STARTUP_ALERTS_CHECKS_PASSED')):
+        if os.environ.get('DDEV_UI_SUITE') and suite not in os.environ['DDEV_UI_SUITE'].split(','):
+            continue
         shutil.copy2(project / ('tests/' + fixture + '_backend.py'), root / 'plugin/backend.py')
         shutil.copy2(project / ('tests/' + suite + '.qml'), root / 'shell.qml')
         result = subprocess.run(['quickshell', '-p', str(root / 'shell.qml')], env=env,
