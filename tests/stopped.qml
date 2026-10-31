@@ -14,6 +14,12 @@ ShellRoot {
             test.check(root.testFind("projectStatus-stopped").text === "Stopped" && !root.testFind("projectCard-stopped").hasPaused, "STOPPED_PROJECT_IGNORES_CACHED_PAUSED_SERVICE")
             root.applyInventory([{project: "demo", service: "admin", id: "active", state: "exited", health: "unhealthy"}], false)
             test.check(!root.testFind("projectCard-demo").unhealthy, "EXITED_SERVICE_IS_NOT_A_RUNNING_HEALTH_FAILURE")
+            root.projects = root.projects.map(p => p.name === "demo" ? Object.assign({}, p, {status: "unhealthy"}) : p)
+            root.applyInventory([{project: "demo", service: "web", id: "active", state: "running", health: "unhealthy"}], false)
+            test.check(root.testFind("powerSwitch-demo").checked && root.runningCount === 1, "UNHEALTHY_DDEV_PROJECT_IS_ACTIVE_WITH_POWER_ON")
+            test.check(root.testFind("projectStatus-demo").text === "Running · unhealthy", "UNHEALTHY_PROJECT_STATUS_DISTINGUISHES_RUNNING_FROM_HEALTHY")
+            test.check(root.testFind("restartProject-demo").enabled && root.testFind("openProjectLogs-demo").enabled && root.testFind("showProjectContainers-demo").enabled, "UNHEALTHY_PROJECT_RETAINS_RECOVERY_AND_DIAGNOSTIC_ACTIONS")
+            root.projects = root.projects.map(p => p.name === "demo" ? Object.assign({}, p, {status: "running"}) : p)
             root.applyInventory([], false)
             var actions = ["openProjectSite", "openProjectLogs", "showProjectContainers", "openProjectMailpit", "restartProject"]
             for (var i = 0; i < actions.length; i++) {

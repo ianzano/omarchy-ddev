@@ -534,7 +534,7 @@ def main(args):
     project = next((p for p in entries if p['name'] == args[1]), None)
     if not project:
         raise ValueError('Project is no longer registered; refresh the list')
-    if action == 'restart' and project.get('status') != 'running':
+    if action == 'restart' and project.get('status') not in ('running', 'unhealthy'):
         raise ValueError('Restart is only available for running projects. Use Start first.')
     cwd = project['approot']
     if not (Path(cwd) / '.ddev' / 'config.yaml').is_file():
@@ -550,7 +550,7 @@ def main(args):
             return change_shortcut(project, remove=args[2])
         if action == 'delete-snapshot':
             return delete_snapshot(project, args[2])
-        if project.get('status') != 'running':
+        if project.get('status') not in ('running', 'unhealthy'):
             raise ValueError('Start the project first')
         candidates = discovered_commands(project) if args[2].startswith('ddev:') else shortcuts(project)
         item = next((item for item in candidates if item['id'] == args[2]), None)

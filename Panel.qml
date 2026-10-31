@@ -201,7 +201,7 @@ Panel {
         var job = globalBusy ? jobs["__all__"] : jobs[name]
         return job ? Math.max(0, Math.floor((clockNow - job.startedAt) / 1000)) : 0
     }
-    function projectRunning(name) { return projects.some(p => p.name === name && p.status === "running") }
+    function projectRunning(name) { return projects.some(p => p.name === name && Monitoring.isActiveStatus(p.status)) }
     function canRun(action, name) {
         if (["poweroff", "start", "stop", "restart", "snapshot", "snapshots", "restore", "domains", "browse", "browse-all", "mailpit", "folder", "commands", "save-command", "delete-command", "custom-command", "delete-snapshot", "snapshot-folder"].indexOf(action) < 0) return false
         if (action === "poweroff") return !busy
@@ -264,7 +264,7 @@ Panel {
     }
     readonly property string bridge: Qt.resolvedUrl("backend.py").toString().replace(/^file:\/\//, "")
     readonly property color foreground: Commons.Color.foreground
-    readonly property int runningCount: projects.filter(p => p.status === "running").length
+    readonly property int runningCount: projects.filter(p => Monitoring.isActiveStatus(p.status)).length
     readonly property var filteredProjects: projects.filter(p => (p.name + " " + p.approot).toLowerCase().indexOf(query.toLowerCase()) >= 0)
     implicitWidth: button.implicitWidth
     implicitHeight: button.implicitHeight
@@ -718,12 +718,12 @@ Panel {
                         objectName: "projectCard-" + modelData.name
                         readonly property var serviceContainers: root.containersFor(modelData.name)
                         readonly property bool hasPaused: running && serviceContainers.some(c => c.state === "paused")
-                        readonly property bool unhealthy: running && serviceContainers.some(c => c.health === "unhealthy" && c.state === "running")
+                        readonly property bool unhealthy: running && (modelData.status === "unhealthy" || serviceContainers.some(c => c.health === "unhealthy" && c.state === "running"))
                         readonly property var consoleState: root.outputFor(modelData.name)
                         readonly property bool consoleBusy: !!root.jobs[modelData.name] && ["snapshots", "domains"].indexOf(root.actionFor(modelData.name)) < 0 && !root.isCommandRead(root.actionFor(modelData.name))
                         required property var modelData
                         readonly property bool busy: root.projectBusy(modelData.name)
-                        readonly property bool running: modelData.status === "running"
+                        readonly property bool running: Monitoring.isActiveStatus(modelData.status)
                         readonly property color statusColor: busy || hasPaused ? root.progress : unhealthy ? Commons.Color.urgent : (running ? root.success : (modelData.status === "stopped" ? root.muted : root.progress))
                         width: content.width
                         implicitHeight: projectContent.implicitHeight + Style.space(24)
@@ -753,7 +753,7 @@ Panel {
                                     Layout.minimumWidth: 0
                                     spacing: Style.space(2)
                                     Label { Layout.fillWidth: true; elide: Text.ElideRight; text: projectRow.modelData.name; font.bold: true; font.pixelSize: Style.font.subtitle }
-                                    Label { objectName: "projectStatus-" + projectRow.modelData.name; Layout.fillWidth: true; elide: Text.ElideRight; text: projectRow.busy ? root.actionLabelFor(root.actionFor(projectRow.modelData.name)) + "… · " + root.elapsedFor(projectRow.modelData.name) + " s" : (projectRow.hasPaused ? "Paused services" : projectRow.unhealthy ? "Unhealthy services" : projectRow.running ? "Running" : projectRow.modelData.status === "stopped" ? "Stopped" : projectRow.modelData.status); color: projectRow.statusColor; font.pixelSize: Style.font.caption }
+                                    Label { objectName: "projectStatus-" + projectRow.modelData.name; Layout.fillWidth: true; elide: Text.ElideRight; text: projectRow.busy ? root.actionLabelFor(root.actionFor(projectRow.modelData.name)) + "… · " + root.elapsedFor(projectRow.modelData.name) + " s" : (projectRow.hasPaused ? "Paused services" : projectRow.unhealthy ? "Running · unhealthy" : projectRow.running ? "Running" : projectRow.modelData.status === "stopped" ? "Stopped" : projectRow.modelData.status); color: projectRow.statusColor; font.pixelSize: Style.font.caption }
                                 }
                                 Label { text: projectRow.modelData.type; color: root.muted; font.pixelSize: Style.font.caption }
                                 }

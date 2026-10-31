@@ -42,6 +42,12 @@ class BackendTests(unittest.TestCase):
             self.assertTrue(backend.main(['restart', 'demo'])['ok'])
             self.assertEqual(run.call_args.args[0], ['ddev', 'restart'])
 
+    def test_restart_accepts_active_unhealthy_project(self):
+        self.project['status'] = 'unhealthy'
+        with patch.object(backend, 'run', return_value=subprocess.CompletedProcess([], 0, 'ok', '')) as run:
+            self.assertTrue(backend.main(['restart', 'demo'])['ok'])
+            self.assertEqual(run.call_args.args[0], ['ddev', 'restart'])
+
     def test_stop_never_removes_data(self):
         with patch.object(backend, 'run', return_value=subprocess.CompletedProcess([], 0, 'ok', '')) as run:
             self.assertTrue(backend.main(['stop', 'demo'])['ok'])

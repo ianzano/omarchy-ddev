@@ -9,7 +9,7 @@ ShellRoot {
         onTriggered: {
             var root = plugin.item
             root.applyInventory([{project: "demo", service: "admin", id: "stale", state: "running", health: "unhealthy"}], false)
-            test.check(root.testFind("projectStatus-demo").text === "Unhealthy services", "RUNNING_UNHEALTHY_PROJECT_IS_REPORTED")
+            test.check(root.testFind("projectStatus-demo").text === "Running · unhealthy", "RUNNING_UNHEALTHY_PROJECT_IS_REPORTED")
             root.refresh()
             test.check(root.execute("stop", "demo", ""), "STOP_ACCEPTED_DURING_STATUS_READ")
         }

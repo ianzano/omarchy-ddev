@@ -12,6 +12,8 @@ var awaitingInventory = ({})
 var stopped = ({})
 var sawStoppedStatus = ({})
 
+function isActiveStatus(status) { return status === "running" || status === "unhealthy" }
+
 function key(project, service) { return project + "\n" + service }
 
 function markDirty(name, reset) {
@@ -24,11 +26,11 @@ function register(list) {
         var entry = list[i]
         var name = typeof entry === "string" ? entry : entry.name
         if (stopped[name] && typeof entry !== "string") {
-            if (entry.status !== "running") sawStoppedStatus[name] = true
+            if (!isActiveStatus(entry.status)) sawStoppedStatus[name] = true
             else if (sawStoppedStatus[name]) { delete stopped[name]; delete sawStoppedStatus[name] }
         }
         if (projects[name] === undefined)
-            projects[name] = typeof entry === "string" ? "unknown" : entry.status === "running" ? "running" : "stopped"
+            projects[name] = typeof entry === "string" ? "unknown" : isActiveStatus(entry.status) ? (entry.status === "unhealthy" ? "unhealthy" : "running") : "stopped"
     }
 }
 
