@@ -55,6 +55,8 @@ cd omarchy-ddev
 python3 install.py
 ```
 
+The installer creates config backups with mode `0600`. It writes replacements to an exclusively created private temporary file, preserves the existing configuration’s owner, group, permissions, and POSIX access ACL, and atomically replaces the configuration. New configurations default to `0600`; existing symlinks are preserved. Failed replacements remove their temporary copy.
+
 Installs to `~/.config/omarchy/plugins/ianzano.ddev/` and adds `ianzano.ddev` beside the system tray in `shell.json`. Existing config is backed up to `shell.json.bak.ddev-<timestamp>`. Existing plugin files are backed up under `~/.config/omarchy/plugin-backups/`. Shell config and plugins hot-reload.
 
 `manifest.json`, `Panel.qml`, `backend.py`, and `Monitoring.js` live at the repository root so the repository is directly installable by Omarchy. The repository is named `omarchy-ddev`; the namespaced plugin ID and installed directory name are `ianzano.ddev`.
