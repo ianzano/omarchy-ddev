@@ -7,6 +7,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
 from test_backend import backend
@@ -74,7 +75,7 @@ class SecurityTests(unittest.TestCase):
         self.save()
         path = backend.shortcut_file(self.project)
         original = path.read_bytes()
-        with patch.object(Path, 'replace', side_effect=OSError('fixture failure')):
+        with patch.object(backend.os, 'replace', side_effect=OSError('fixture failure')):
             with self.assertRaises(OSError):
                 self.save()
         self.assertEqual(path.read_bytes(), original)
@@ -102,6 +103,57 @@ class SecurityTests(unittest.TestCase):
         self.assertFalse((moved / snapshot.name).exists())
         self.assertTrue(swapped)
 
+    def test_directory_swap_cannot_redirect_shortcut_replacement(self):
+        self.save()
+        path = backend.shortcut_file(self.project)
+        outside = self.root / 'outside-state'
+        outside.mkdir()
+        victim = outside / path.name
+        victim.write_text('keep unrelated state')
+        moved = self.root / 'moved-state'
+        replace = os.replace
+        swapped = []
+        def swap_then_replace(source, target, *args, **kwargs):
+            if not swapped:
+                path.parent.rename(moved)
+                path.parent.symlink_to(outside, target_is_directory=True)
+                (outside / Path(source).name).write_text('attacker replacement')
+                swapped.append(True)
+            return replace(source, target, *args, **kwargs)
+        with patch.object(backend.os, 'replace', side_effect=swap_then_replace):
+            try:
+                self.save()
+            except (OSError, ValueError):
+                pass
+        self.assertTrue(swapped)
+        self.assertEqual(victim.read_text(), 'keep unrelated state')
+
+    def test_command_scan_does_not_block_if_regular_file_becomes_fifo(self):
+        folder = self.snapshots.parent / 'commands/web'
+        folder.mkdir(parents=True)
+        os.mkfifo(folder / 'raced-command')
+        script = """import backend,sys,json
+from pathlib import Path
+original = Path.is_file
+Path.is_file = lambda path: path.name == 'raced-command' or original(path)
+backend.child_environment = lambda: {'DDEV_GLOBAL_DIR': sys.argv[1] + '/global'}
+backend.run = lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError('Unexpected command execution'))
+assert backend.discovered_commands({'approot':sys.argv[1]}) == []
+print('SCAN_PASSED')
+"""
+        process = subprocess.Popen([sys.executable, '-c', script, self.project['approot']], cwd=Path(__file__).parent,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            out, err = process.communicate(timeout=3)
+            self.assertEqual(process.returncode, 0, err)
+            self.assertIn('SCAN_PASSED', out)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+            process.stdout.close()
+            process.stderr.close()
+
     def test_private_request_validation(self):
         args = ['save-command', 'private-project', '{"command":"private-value"}']
         self.assertEqual(backend.request_args(['request'], io.StringIO(json.dumps(args))), args)
@@ -126,3 +178,69 @@ class SecurityTests(unittest.TestCase):
             process.wait(timeout=3)
             process.stdout.close()
             process.stderr.close()
+
+
+class CaptureSecurityTests(unittest.TestCase):
+    def test_large_single_log_line_is_bounded_during_capture(self):
+        result = backend.run([sys.executable, '-c', 'import sys; sys.stdout.write("x"*2000000+"TAIL")'],
+                             merged=True, capture_limit=24000, keep_tail=True)
+        self.assertLessEqual(len(result.stdout), 24000)
+        self.assertTrue(result.stdout.endswith('TAIL'))
+
+    def test_metadata_capture_rejects_excessive_output(self):
+        with self.assertRaisesRegex(RuntimeError, 'capture limit'):
+            backend.run([sys.executable, '-c', 'import sys; sys.stdout.write("x"*1000000)'], capture_limit=4096)
+
+    def test_timeout_stops_descendants_after_parent_has_exited(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / 'child.pid'
+            child = 'import os,signal,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); open(' + repr(str(marker)) + ',"w").write(str(os.getpid())); time.sleep(60)'
+            parent = 'import subprocess,sys; subprocess.Popen([sys.executable,"-c",' + repr(child) + '])'
+            try:
+                with self.assertRaises(subprocess.TimeoutExpired):
+                    backend.run([sys.executable, '-c', parent], timeout=0.5, stream=True)
+                pid = int(marker.read_text())
+                # Reaping may be handled by init; a zombie has already stopped.
+                status = Path('/proc/' + str(pid) + '/stat')
+                deadline = time.monotonic() + 1
+                while status.exists() and not status.read_text().split(') ', 1)[1].startswith('Z') and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertTrue(not status.exists() or status.read_text().split(') ', 1)[1].startswith('Z'))
+            finally:
+                if marker.exists():
+                    try: os.kill(int(marker.read_text()), signal.SIGKILL)
+                    except ProcessLookupError: pass
+
+    def test_log_cleanup_stops_children_that_ignore_termination(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / 'log-child.pid'
+            child = 'import os,signal,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); open(' + repr(str(marker)) + ',"w").write(str(os.getpid())); time.sleep(60)'
+            parent = 'import subprocess,sys,time; subprocess.Popen([sys.executable,"-c",' + repr(child) + ']); print("ready",flush=True); time.sleep(60)'
+            script = ('import backend,sys; backend.log_services=lambda *args:["web"]; '
+                      'backend.log_command=lambda *args,**kw:[sys.executable,"-u","-c",' + repr(parent) + ']; '
+                      'backend.follow_project_logs([],{"name":"demo","approot":sys.argv[1]})')
+            process = subprocess.Popen([sys.executable, '-u', '-c', script, directory], cwd=Path(__file__).parent,
+                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            try:
+                self.assertIn('ready', process.stdout.readline())
+                deadline = time.monotonic() + 2
+                while not marker.exists() and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertTrue(marker.exists())
+                process.terminate()
+                _, error = process.communicate(timeout=8)
+                self.assertEqual(process.returncode, 0, error)
+                status = Path('/proc/' + marker.read_text() + '/stat')
+                deadline = time.monotonic() + 1
+                while status.exists() and not status.read_text().split(') ', 1)[1].startswith('Z') and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                self.assertTrue(not status.exists() or status.read_text().split(') ', 1)[1].startswith('Z'))
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                    process.wait()
+                if marker.exists():
+                    try: os.kill(int(marker.read_text()), signal.SIGKILL)
+                    except ProcessLookupError: pass
+                process.stdout.close()
+                process.stderr.close()

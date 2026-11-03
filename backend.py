@@ -5,7 +5,6 @@ import hashlib
 import shlex
 import uuid
 import fcntl
-import tempfile
 import ipaddress
 from urllib.parse import urlsplit
 from concurrent.futures import ThreadPoolExecutor
@@ -56,40 +55,63 @@ def child_environment():
     return env
 
 
-def run(argv, cwd=None, timeout=30, stream=False, merged=False):
-    if not stream:
-        return subprocess.run(argv, cwd=cwd, text=True, stdout=subprocess.PIPE,
-                              stderr=subprocess.STDOUT if merged else subprocess.PIPE, timeout=timeout, stdin=subprocess.DEVNULL, env=child_environment())
-    # A line is not always complete: DDEV also emits progress with carriage returns.
-    proc = subprocess.Popen(argv, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                            stdin=subprocess.DEVNULL, env=child_environment())
-    output = ''
-    decoder = codecs.getincrementaldecoder('utf-8')(errors='replace')
+def run(argv, cwd=None, timeout=30, stream=False, merged=False,
+        capture_limit=8 * 1024 * 1024, keep_tail=False):
+    if capture_limit <= 0:
+        raise ValueError('Invalid capture limit')
+    proc = subprocess.Popen(argv, cwd=cwd, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT if stream or merged else subprocess.PIPE,
+                            stdin=subprocess.DEVNULL, env=child_environment(), start_new_session=True)
+    limit = 24000 if stream else capture_limit
+    tail = stream or keep_tail
+    buffers = {'stdout': '' if tail else [], 'stderr': '' if tail else []}
+    decoders = {name: codecs.getincrementaldecoder('utf-8')(errors='replace') for name in buffers}
+    total_bytes = 0
+    finished = False
     deadline = time.monotonic() + timeout
+
+    def collect(name, text):
+        if tail:
+            buffers[name] = (buffers[name] + text)[-limit:]
+        else:
+            buffers[name].append(text)
+        if stream and text:
+            print(json.dumps({'event': 'output', 'text': text}), flush=True)
+
     try:
         with selectors.DefaultSelector() as selector:
-            selector.register(proc.stdout, selectors.EVENT_READ)
+            selector.register(proc.stdout, selectors.EVENT_READ, 'stdout')
+            if proc.stderr is not None:
+                selector.register(proc.stderr, selectors.EVENT_READ, 'stderr')
             while selector.get_map():
-                if time.monotonic() >= deadline:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
                     raise subprocess.TimeoutExpired(argv, timeout)
-                for key, _ in selector.select(timeout=0.2):
+                for key, _ in selector.select(timeout=min(0.2, remaining)):
                     chunk = os.read(key.fileobj.fileno(), 4096)
                     if not chunk:
                         selector.unregister(key.fileobj)
+                        collect(key.data, decoders[key.data].decode(b'', final=True))
                         continue
-                    text = decoder.decode(chunk)
-                    output = (output + text)[-24000:]
-                    print(json.dumps({'event': 'output', 'text': text}), flush=True)
-        tail = decoder.decode(b'', final=True)
-        if tail:
-            output = (output + tail)[-24000:]
-            print(json.dumps({'event': 'output', 'text': tail}), flush=True)
-        return subprocess.CompletedProcess(argv, proc.wait(timeout=max(0.1, deadline - time.monotonic())), output, '')
+                    total_bytes += len(chunk)
+                    if not tail and total_bytes > capture_limit:
+                        raise RuntimeError('Command output exceeded the capture limit')
+                    collect(key.data, decoders[key.data].decode(chunk))
+        code = proc.wait(timeout=max(0.001, deadline - time.monotonic()))
+        finished = True
+        output = {name: value if tail else ''.join(value) for name, value in buffers.items()}
+        return subprocess.CompletedProcess(argv, code, output['stdout'], output['stderr'])
     finally:
-        if proc.poll() is None:
-            proc.kill()
+        if not finished:
+            # The parent may already have exited while a child holds its pipe.
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
             proc.wait()
         proc.stdout.close()
+        if proc.stderr is not None:
+            proc.stderr.close()
 
 
 def records(output):
@@ -143,22 +165,44 @@ def shortcut_args(command):
     return args
 
 
-def shortcuts(project):
-    path = shortcut_file(project)
-    if not path.exists():
-        return []
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
-    with os.fdopen(fd) as stream:
-        info = os.fstat(stream.fileno())
-        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o022:
-            raise ValueError('Shortcut file must be owned by you and not writable by other accounts')
-        raw = stream.read(1048577)
-        if len(raw) > 1048576:
-            raise ValueError('Shortcut configuration is too large')
-        data = json.loads(raw)
-    if not isinstance(data, list) or not all(isinstance(item, dict) and all(isinstance(item.get(key), str) for key in ('id', 'label', 'command')) for item in data):
-        raise ValueError('Invalid local shortcut configuration')
-    return data
+def shortcut_directory(project, create=False):
+    directory = shortcut_file(project).parent
+    if create:
+        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    info = os.fstat(fd)
+    if info.st_uid != os.getuid() or info.st_mode & 0o022:
+        os.close(fd)
+        raise ValueError('Shortcut directory must be owned by you and not writable by other accounts')
+    return fd
+
+
+def shortcuts(project, directory_fd=None):
+    owned_fd = directory_fd is None
+    if owned_fd:
+        try:
+            directory_fd = shortcut_directory(project)
+        except FileNotFoundError:
+            return []
+    try:
+        try:
+            fd = os.open(shortcut_file(project).name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory_fd)
+        except FileNotFoundError:
+            return []
+        with os.fdopen(fd) as stream:
+            info = os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o022:
+                raise ValueError('Shortcut file must be owned by you and not writable by other accounts')
+            raw = stream.read(1048577)
+            if len(raw) > 1048576:
+                raise ValueError('Shortcut configuration is too large')
+            data = json.loads(raw)
+        if not isinstance(data, list) or not all(isinstance(item, dict) and all(isinstance(item.get(key), str) for key in ('id', 'label', 'command')) for item in data):
+            raise ValueError('Invalid local shortcut configuration')
+        return data
+    finally:
+        if owned_fd:
+            os.close(directory_fd)
 
 
 def discovered_commands(project):
@@ -175,7 +219,10 @@ def discovered_commands(project):
                 if not path.is_file() or path.name.startswith('.') or path.name.endswith('.example'):
                     continue
                 try:
-                    with path.open(errors='replace') as stream:
+                    fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOCTTY)
+                    with os.fdopen(fd, errors='replace') as stream:
+                        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                            continue
                         header = stream.read(32769)
                 except OSError:
                     continue
@@ -207,8 +254,8 @@ def discovered_commands(project):
             for name in sorted(definitions, key=str.casefold) if definitions[name] and name in available]
 
 
-def command_catalog(project):
-    saved = shortcuts(project)
+def command_catalog(project, saved=None):
+    saved = shortcuts(project) if saved is None else saved
     try:
         return {'ok': True, 'commands': saved + discovered_commands(project)}
     except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as exc:
@@ -217,49 +264,55 @@ def command_catalog(project):
 
 def change_shortcut(project, payload=None, remove=None):
     path = shortcut_file(project)
-    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    directory = path.parent.lstat()
-    if not stat.S_ISDIR(directory.st_mode) or directory.st_uid != os.getuid() or directory.st_mode & 0o022:
-        raise ValueError('Shortcut directory must be owned by you and not writable by other accounts')
-    lock_fd = os.open(path.with_suffix('.lock'), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
-    info = os.fstat(lock_fd)
-    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1:
-        os.close(lock_fd)
-        raise ValueError('Invalid shortcut lock file')
-    os.fchmod(lock_fd, 0o600)
-    with os.fdopen(lock_fd, 'a') as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        items = shortcuts(project)
-        if remove is not None:
-            if not any(item['id'] == remove for item in items):
-                raise ValueError('Shortcut no longer exists; reload commands')
-            items = [item for item in items if item['id'] != remove]
-        else:
-            data = json.loads(payload)
-            if not isinstance(data, dict) or not isinstance(data.get('label'), str) or not isinstance(data.get('command'), str):
-                raise ValueError('Enter a label and DDEV command')
-            label = data.get('label', '').strip()
-            command = data.get('command', '').strip()
-            if not label or len(label) > 80 or any(ord(c) < 32 for c in label):
-                raise ValueError('Give the shortcut a label of up to 80 characters')
-            shortcut_args(command)
-            identifier = data.get('id') or uuid.uuid4().hex
-            if data.get('id') and not any(item['id'] == identifier for item in items):
-                raise ValueError('Shortcut no longer exists; reload commands')
-            item = {'id': identifier, 'label': label, 'command': command}
-            items = [item if old['id'] == identifier else old for old in items] if data.get('id') else items + [item]
-        fd, filename = tempfile.mkstemp(prefix=path.stem + '-', suffix='.tmp', dir=path.parent)
-        temporary = Path(filename)
-        try:
-            with os.fdopen(fd, 'w') as stream:
-                os.fchmod(stream.fileno(), 0o600)
-                stream.write(json.dumps(items, indent=2) + '\n')
-                stream.flush()
-                os.fsync(stream.fileno())
-            temporary.replace(path)
-        finally:
-            temporary.unlink(missing_ok=True)
-    return command_catalog(project)
+    directory_fd = shortcut_directory(project, create=True)
+    try:
+        lock_fd = os.open(path.with_suffix('.lock').name, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600, dir_fd=directory_fd)
+        info = os.fstat(lock_fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1:
+            os.close(lock_fd)
+            raise ValueError('Invalid shortcut lock file')
+        with os.fdopen(lock_fd, 'a') as lock:
+            os.fchmod(lock.fileno(), 0o600)
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            items = shortcuts(project, directory_fd)
+            if remove is not None:
+                if not any(item['id'] == remove for item in items):
+                    raise ValueError('Shortcut no longer exists; reload commands')
+                items = [item for item in items if item['id'] != remove]
+            else:
+                data = json.loads(payload)
+                if not isinstance(data, dict) or not isinstance(data.get('label'), str) or not isinstance(data.get('command'), str):
+                    raise ValueError('Enter a label and DDEV command')
+                label = data.get('label', '').strip()
+                command = data.get('command', '').strip()
+                if not label or len(label) > 80 or any(ord(c) < 32 for c in label):
+                    raise ValueError('Give the shortcut a label of up to 80 characters')
+                shortcut_args(command)
+                identifier = data.get('id') or uuid.uuid4().hex
+                if data.get('id') and not any(item['id'] == identifier for item in items):
+                    raise ValueError('Shortcut no longer exists; reload commands')
+                item = {'id': identifier, 'label': label, 'command': command}
+                items = [item if old['id'] == identifier else old for old in items] if data.get('id') else items + [item]
+            serialized = json.dumps(items, indent=2) + '\n'
+            if len(serialized) > 1048576:
+                raise ValueError('Shortcut configuration is too large')
+            temporary = path.stem + '-' + uuid.uuid4().hex + '.tmp'
+            fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=directory_fd)
+            try:
+                with os.fdopen(fd, 'w') as stream:
+                    os.fchmod(stream.fileno(), 0o600)
+                    stream.write(serialized)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                os.replace(temporary, path.name, src_dir_fd=directory_fd, dst_dir_fd=directory_fd)
+            finally:
+                try:
+                    os.unlink(temporary, dir_fd=directory_fd)
+                except FileNotFoundError:
+                    pass
+    finally:
+        os.close(directory_fd)
+    return command_catalog(project, saved=items)
 
 
 def delete_snapshot(project, selected):
@@ -398,7 +451,7 @@ def project_logs(entries, project):
     if not services:
         return {'ok': True, 'logs': '', 'message': 'No project containers are available yet.'}
     def read(service):
-        proc = run(log_command(service), cwd=project['approot'], timeout=20, merged=True)
+        proc = run(log_command(service), cwd=project['approot'], timeout=20, merged=True, capture_limit=24000, keep_tail=True)
         output = (proc.stdout or '') + (proc.stderr or '')
         return service, proc.returncode, output
     lines = []
@@ -468,6 +521,10 @@ def follow_project_logs(entries, project):
                 except ProcessLookupError:
                     pass
                 proc.wait()
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
             proc.stdout.close()
         for signum, handler in previous_handlers.items():
             signal.signal(signum, handler)
