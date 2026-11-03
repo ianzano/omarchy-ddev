@@ -30,7 +30,7 @@ ShellRoot {
             test.check(root.domainFor("demo").items.length === 2 && !root.busy, "MULTIPLE_DOMAINS_LOADED")
             test.check(root.testFind("openAllDomains-demo").enabled, "OPEN_ALL_AVAILABLE")
             root.testFind("openDomain-demo-admin.example.test").clicked()
-            test.check(root.jobs.demo.actionName === "browse" && root.jobs.demo.command[4] === "https://admin.example.test", "INDIVIDUAL_DOMAIN_SELECTED")
+            test.check(root.jobs.demo.actionName === "browse" && root.jobs.demo.requestArgs[2] === "https://admin.example.test", "INDIVIDUAL_DOMAIN_SELECTED")
         }
     }
     Timer {
@@ -39,7 +39,7 @@ ShellRoot {
             var root = plugin.item
             test.check(!root.busy && root.outputFor("demo").action === "browse", "INDIVIDUAL_DOMAIN_ACTION_COMPLETED")
             root.testFind("openAllDomains-demo").clicked()
-            test.check(root.jobs.demo.actionName === "browse-all" && root.jobs.demo.command.length === 4, "OPEN_ALL_ACTION_DISPATCHED")
+            test.check(root.jobs.demo.actionName === "browse-all" && root.jobs.demo.requestArgs.length === 2, "OPEN_ALL_ACTION_DISPATCHED")
         }
     }
     Timer {

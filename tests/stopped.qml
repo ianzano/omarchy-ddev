@@ -78,7 +78,7 @@ ShellRoot {
             var root = plugin.item
             root.testFind("snapshotName-demo").text = "new-backup"
             root.testFind("createSnapshot-demo").clicked()
-            test.check(root.jobs.demo.actionName === "snapshot" && root.jobs.demo.command[4] === "new-backup", "FILTER_INPUT_STILL_NAMES_NEW_SNAPSHOT")
+            test.check(root.jobs.demo.actionName === "snapshot" && root.jobs.demo.requestArgs[2] === "new-backup", "FILTER_INPUT_STILL_NAMES_NEW_SNAPSHOT")
         }
     }
     Timer {

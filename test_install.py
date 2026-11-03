@@ -48,7 +48,7 @@ class InstallerTests(unittest.TestCase):
         self.install()
         self.assertEqual(self.install(), previous)
         self.assertTrue(any(self.omarchy.glob('shell.json.bak.ddev-*')))
-        self.assertTrue(any((self.omarchy / 'plugin-backups').glob('ianzano.ddev-*/manifest.json')))
+        self.assertTrue(any((self.omarchy / 'plugin-backups').glob('ianzano.ddev-*/files/manifest.json')))
 
     def test_reinstall_deduplicates_bar_slots(self):
         self.config.write_text(json.dumps({'bar': {'layout': {'left': [{'id': 'ianzano.ddev', 'refreshIntervalSec': 30}], 'right': [{'id': 'ianzano.ddev'}]}}}))
@@ -103,14 +103,17 @@ class InstallerTests(unittest.TestCase):
         def check_create(*args, **kwargs):
             fd, name = mkstemp(*args, **kwargs)
             self.assertEqual(os.fstat(fd).st_mode & 0o077, 0)
-            checked.append('created-private')
+            if kwargs.get('prefix', '').startswith('shell.json.ddev-'):
+                checked.append('created-private')
             return fd, name
         def check_copy(original, output, *args):
-            if isinstance(output.name, int):
+            if Path(original.name) == self.config:
                 self.assertEqual(stat.S_IMODE(os.fstat(output.fileno()).st_mode), 0o600)
                 checked.append('backup')
             return copy(original, output, *args)
         def check_replace(temporary, destination):
+            if destination != self.config:
+                return replace(temporary, destination)
             self.assertEqual(stat.S_IMODE(temporary.stat().st_mode), 0o600)
             self.assertTrue(any(e.get('id') == 'ianzano.ddev' for e in json.loads(temporary.read_text())['bar']['layout']['right']))
             checked.append('replacement')
@@ -123,7 +126,12 @@ class InstallerTests(unittest.TestCase):
         original = '{"private": "fixture-only"}'
         self.config.write_text(original)
         self.config.chmod(0o600)
-        with redirect_stdout(io.StringIO()), patch.dict(os.environ, {'XDG_CONFIG_HOME': str(self.config_home)}), patch.object(Path, 'replace', side_effect=OSError('simulated failure')):
+        replace = Path.replace
+        def fail_config_replace(temporary, destination):
+            if destination == self.config:
+                raise OSError('simulated failure')
+            return replace(temporary, destination)
+        with redirect_stdout(io.StringIO()), patch.dict(os.environ, {'XDG_CONFIG_HOME': str(self.config_home)}), patch.object(Path, 'replace', fail_config_replace):
             with self.assertRaises(OSError):
                 runpy.run_path(str(self.installer))
         self.assertEqual(self.config.read_text(), original)
@@ -167,6 +175,36 @@ class InstallerTests(unittest.TestCase):
         (self.omarchy / 'shell.json.ddev-tmp').symlink_to(unrelated)
         self.install()
         self.assertEqual(unrelated.read_text(), 'untouched')
+
+    def test_plugin_backup_is_private_and_does_not_follow_external_symlinks(self):
+        self.install()
+        plugin = self.omarchy / 'plugins/ianzano.ddev'
+        private = plugin / 'private-settings.json'
+        private.write_text('{"private":"fixture-only"}')
+        private.chmod(0o600)
+        external = self.config_home / 'outside'
+        external.mkdir()
+        (external / 'private.txt').write_text('keep outside')
+        (plugin / 'external-link').symlink_to(external, target_is_directory=True)
+        self.install()
+        backups = list((self.omarchy / 'plugin-backups').iterdir())
+        self.assertEqual(len(backups), 1)
+        self.assertEqual(stat.S_IMODE(backups[0].stat().st_mode), 0o700)
+        self.assertTrue((backups[0] / 'files/external-link').is_symlink())
+        self.assertEqual(stat.S_IMODE((backups[0] / 'files/private-settings.json').stat().st_mode), 0o600)
+        self.assertEqual((external / 'private.txt').read_text(), 'keep outside')
+
+    def test_runtime_destination_symlink_cannot_overwrite_another_file(self):
+        self.install()
+        plugin = self.omarchy / 'plugins/ianzano.ddev'
+        external = self.config_home / 'unrelated.txt'
+        external.write_text('keep unrelated data')
+        (plugin / 'backend.py').unlink()
+        (plugin / 'backend.py').symlink_to(external)
+        self.install()
+        self.assertEqual(external.read_text(), 'keep unrelated data')
+        self.assertFalse((plugin / 'backend.py').is_symlink())
+        self.assertEqual((plugin / 'backend.py').read_bytes(), (self.installer.parent / 'backend.py').read_bytes())
 
     def test_invalid_config_is_not_changed(self):
         self.config.write_text('invalid JSON')

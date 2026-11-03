@@ -62,6 +62,21 @@ def atomic_config_write(path, settings):
         temporary.unlink(missing_ok=True)
 
 
+def atomic_runtime_copy(source, target):
+    # Replace the managed entry itself, never follow a destination symlink.
+    fd, filename = tempfile.mkstemp(prefix='.' + target.name + '.ddev-', dir=target.parent)
+    temporary = Path(filename)
+    try:
+        with os.fdopen(fd, 'wb') as output, source.open('rb') as original:
+            shutil.copyfileobj(original, output)
+            output.flush()
+            os.fsync(output.fileno())
+        shutil.copystat(source, temporary)
+        temporary.replace(target)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
 source = Path(__file__).resolve().parent
 manifest = json.loads((source / 'manifest.json').read_text())
 plugin_id = manifest['id']
@@ -106,14 +121,17 @@ if config.exists():
     private_backup(config, backup)
     print('Config backup:', backup)
 if destination.exists() and destination.resolve() != source:
-    backup_dir = omarchy / 'plugin-backups' / (plugin_id + '-' + stamp)
-    backup_dir.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(destination, backup_dir)
+    backup_root = omarchy / 'plugin-backups'
+    backup_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    # The private wrapper never inherits the source directory's public mode.
+    backup_dir = Path(tempfile.mkdtemp(prefix=plugin_id + '-' + stamp + '-', dir=backup_root))
+    backup_dir.chmod(0o700)
+    shutil.copytree(destination, backup_dir / 'files', symlinks=True)
 destination.mkdir(parents=True, exist_ok=True)
 for filename in runtime_files:
     target = destination / filename
     if (source / filename).resolve() != target.resolve():
-        shutil.copy2(source / filename, target)
+        atomic_runtime_copy(source / filename, target)
 atomic_config_write(config, settings)
 print('Installed:', destination)
 print('Configured bar widget:', plugin_id)

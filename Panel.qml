@@ -117,7 +117,7 @@ Panel {
         var follow = opened && view.live
         var reader = logReaderFactory.createObject(root, {
             projectName: name, following: follow, signature: logSignature(name),
-            command: ["python3", bridge, follow ? "logs-follow" : "logs", name]
+            requestArgs: [follow ? "logs-follow" : "logs", name]
         })
         if (!reader) return
         var next = Object.assign({}, logJobs)
@@ -280,7 +280,7 @@ Panel {
             projectName: name,
             actionName: action,
             startedAt: Date.now(),
-            command: ["python3", bridge, action, name].concat(extra ? [extra] : [])
+            requestArgs: [action, name].concat(extra ? [extra] : [])
         })
         if (!job) return false
         var next = Object.assign({}, jobs)
@@ -421,6 +421,10 @@ Panel {
         id: logReaderFactory
         Process {
             id: reader
+            command: ["python3", root.bridge, "request"]
+            property var requestArgs: []
+            stdinEnabled: true
+            onStarted: { write(JSON.stringify(requestArgs)); stdinEnabled = false }
             property string projectName: ""
             property string signature: ""
             property bool following: false
@@ -465,6 +469,10 @@ Panel {
         id: operationFactory
         Process {
             id: job
+            command: ["python3", root.bridge, "request"]
+            property var requestArgs: []
+            stdinEnabled: true
+            onStarted: { write(JSON.stringify(requestArgs)); stdinEnabled = false }
             property string projectName: ""
             property string actionName: ""
             property double startedAt: 0

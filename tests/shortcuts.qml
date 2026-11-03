@@ -26,6 +26,7 @@ ShellRoot {
             test.check(root.commandsFor("demo").items.length === 2 && !root.outputFor("demo").action, "SAVE_SHORTCUT_WITHOUT_CONSOLE_NOISE")
             root.testFind("runCommand-shortcut-demo").clicked()
             test.check(root.jobs.demo.actionName === "custom-command", "SHORTCUT_EXECUTED")
+            test.check(root.jobs.demo.command.length === 3 && root.jobs.demo.command[2] === "request" && root.jobs.demo.command.join(" ").indexOf("shortcut-demo") < 0, "PRIVATE_ACTION_VALUES_ARE_NOT_PROCESS_ARGUMENTS")
         }
     }
     Timer {

@@ -55,7 +55,7 @@ cd omarchy-ddev
 python3 install.py
 ```
 
-The installer creates config backups with mode `0600`. It writes replacements to an exclusively created private temporary file, preserves the existing configuration’s owner, group, permissions, and POSIX access ACL, and atomically replaces the configuration. New configurations default to `0600`; existing symlinks are preserved. Failed replacements remove their temporary copy.
+The installer creates config backups with mode `0600`. It writes replacements to an exclusively created private temporary file, preserves the existing configuration’s owner, group, permissions, and POSIX access ACL, and atomically replaces the configuration. New configurations default to `0600`; existing symlinks are preserved. Failed replacements remove their temporary copy. Runtime files are also replaced atomically without following destination symlinks. Plugin-directory backups live inside private `0700` wrappers, under a `files/` subdirectory; symlinks are preserved rather than copied from outside the plugin.
 
 Installs to `~/.config/omarchy/plugins/ianzano.ddev/` and adds `ianzano.ddev` beside the system tray in `shell.json`. Existing config is backed up to `shell.json.bak.ddev-<timestamp>`. Existing plugin files are backed up under `~/.config/omarchy/plugin-backups/`. Shell config and plugins hot-reload.
 
@@ -84,13 +84,15 @@ For manual installs, pull the repository and run `python3 install.py` again.
 
 **Commands** discovers existing commands from the project and global DDEV command directories, using their `Usage` annotations (or filenames when no annotation exists) and checking availability against `ddev help -j` in the project directory. Project definitions override global definitions. Automatic buttons conservatively include only commands with bare usage or optional `[flags]` and no positional argument references in the scanned script. Generic wrappers and commands advertising arguments/subcommands are omitted; add a saved shortcut with explicit arguments to use them. Available commands appear as buttons alongside your saved shortcuts, wrapping within the card. Filter by command name or description; hover to see the command and description. Nothing runs until you click a command. Click **Add**, enter a label and a DDEV command such as `drush cr`, `npm run build`, or `exec vendor/bin/phpunit`, and save. An optional leading `ddev` is accepted. **Edit** reveals controls to update or remove shortcuts. Commands run only on running projects, use the existing output console, and block conflicting actions on that project while allowing other projects to work independently. Discovered commands are never edited or deleted by the plugin. In Edit mode, their pencil button creates a saved shortcut so you can supply arguments. Only saved shortcuts have removal controls. Discovery failures show a warning while preserving saved shortcuts. Use non-interactive commands; arguments support quoting, but shell pipelines and operators are not supported. Existing [DDEV custom commands](https://docs.ddev.com/en/stable/users/extend/custom-commands/) can be used by name.
 
+Shortcut updates use unique private temporary files and refuse symlinked files/locks or storage writable by other accounts.
+
 Shortcut configuration is stored locally under `$XDG_CONFIG_HOME/omarchy/ddev-shortcuts/` (default `~/.config/omarchy/ddev-shortcuts/`), keyed by project path. It is kept outside the plugin installation so updates preserve it. These files are private to the user and never included in this repository. Removing a shortcut does not delete the underlying DDEV command or script.
 
 Click Snapshots on a project to expand its database controls directly inside that project’s card. The shared input filters existing snapshots by name as you type, ignoring case, and supplies the optional name for Create. Clear it to show all snapshots or create an automatically named snapshot. Filtering also works while the project is stopped. New names accept letters, numbers, dots, underscores, and dashes. Snapshot discovery supports `.gz`, `.zst`, `.mbstream`, and `.xbstream` files, including symlinked `.ddev` directories. The list shows snapshots in the selected project's `.ddev/db_snapshots`; snapshots in other Git worktrees are not included.
 
 The top toolbar’s power icon runs `ddev poweroff` after confirmation, stopping all DDEV projects and shared services. Its live output appears below the toolbar.
 
-**Folder** in the snapshot header opens that project’s `.ddev/db_snapshots` directory. The trash button on each card asks for confirmation before permanently deleting that snapshot file; Cancel and switching tabs leave it untouched. Deletion works while stopped and never changes the active database.
+**Folder** in the snapshot header opens that project’s `.ddev/db_snapshots` directory. The trash button on each card asks for confirmation before permanently deleting that snapshot file; deletion is anchored to an open snapshot-directory descriptor so a concurrent directory replacement cannot redirect it. Cancel and switching tabs leave it untouched. Deletion works while stopped and never changes the active database.
 
 Click **Restore…** inside a snapshot card and confirm with **Restore database**. The confirmation identifies the project and snapshot. Switching projects clears the confirmation.
 
@@ -104,7 +106,7 @@ omarchy-shell ianzano.ddev close
 omarchy-shell ianzano.ddev refresh
 omarchy-shell ianzano.ddev status
 omarchy plugin validate .
-python3 -m unittest -v test_backend test_install test_containers test_domains
+python3 -m unittest -v test_backend test_install test_containers test_domains test_shortcuts test_discovery test_notifications test_security
 python3 test_ui.py  # Requires the desktop Wayland session; uses simulated projects
 ```
 
@@ -118,6 +120,8 @@ For a manual installation, remove the `ianzano.ddev` entry from the bar layout i
 
 ## Validation
 
+Security regressions cover helper argument privacy, shortcut symlink attacks, snapshot directory swaps, private backup wrappers, and runtime destination symlinks, using synthetic data.
+
 Notification tests run the real helper against a notification service on an isolated session bus, inspect its `/proc` command line for payload exposure, and verify stdin transport, urgency, Unicode, disabled alerts, and redacted failure handling.
 
 Shortcut tests verify project isolation, save/edit/remove, quoted command arguments, running-state checks, snapshot deletion boundaries, symlink handling, and snapshot folder opening. UI checks cover shortcut buttons and deletion confirmation/cancellation.
@@ -129,6 +133,10 @@ Container tests verify Docker label scoping, bounded logs, stats failures, and s
 ## Local data
 
 The repository contains source code and synthetic test fixtures. Project names, paths, environment values, database snapshots, and command output are discovered on the user's machine at runtime. The plugin has no telemetry or upload code; command output and combined project logs remain in memory for the shell session. Lifecycle alerts are delivered directly over the session D-Bus to the local notification daemon. A fixed Python helper receives alert text through a private stdin pipe; project and service names are never placed in notification process arguments, environment variables, temporary files, or error diagnostics. There is no CLI fallback. Alert details remain visible to the notification daemon and may be retained in its history. Container discovery reads selected state and label fields, not container environment values. Environment variables are passed locally to child processes and are not written to the repository. Local environment files, runtime configs, logs, backups, and snapshot directories are excluded by `.gitignore`.
+
+GUI action and log-reader requests use private stdin pipes, including project names, snapshot paths, and shortcut definitions. Read-only background helpers receive only fixed operation names. Notification payloads continue to use stdin and D-Bus. The command-line bridge still accepts explicit CLI arguments for manual use.
+
+Registered projects and custom commands are trusted executable code and run with your account's privileges. DDEV subprocess arguments (including user-defined command arguments and log service selectors) can still be visible in process listings. Avoid credentials in command arguments; use appropriate secret-file or stdin mechanisms inside your scripts. Command output can contain application secrets and remains visible in the panel for the session.
 
 ## License
 

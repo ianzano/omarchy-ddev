@@ -5,6 +5,7 @@ import hashlib
 import shlex
 import uuid
 import fcntl
+import tempfile
 import ipaddress
 from urllib.parse import urlsplit
 from concurrent.futures import ThreadPoolExecutor
@@ -146,7 +147,15 @@ def shortcuts(project):
     path = shortcut_file(project)
     if not path.exists():
         return []
-    data = json.loads(path.read_text())
+    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(fd) as stream:
+        info = os.fstat(stream.fileno())
+        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o022:
+            raise ValueError('Shortcut file must be owned by you and not writable by other accounts')
+        raw = stream.read(1048577)
+        if len(raw) > 1048576:
+            raise ValueError('Shortcut configuration is too large')
+        data = json.loads(raw)
     if not isinstance(data, list) or not all(isinstance(item, dict) and all(isinstance(item.get(key), str) for key in ('id', 'label', 'command')) for item in data):
         raise ValueError('Invalid local shortcut configuration')
     return data
@@ -209,7 +218,16 @@ def command_catalog(project):
 def change_shortcut(project, payload=None, remove=None):
     path = shortcut_file(project)
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    with path.with_suffix('.lock').open('a') as lock:
+    directory = path.parent.lstat()
+    if not stat.S_ISDIR(directory.st_mode) or directory.st_uid != os.getuid() or directory.st_mode & 0o022:
+        raise ValueError('Shortcut directory must be owned by you and not writable by other accounts')
+    lock_fd = os.open(path.with_suffix('.lock'), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
+    info = os.fstat(lock_fd)
+    if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_nlink != 1:
+        os.close(lock_fd)
+        raise ValueError('Invalid shortcut lock file')
+    os.fchmod(lock_fd, 0o600)
+    with os.fdopen(lock_fd, 'a') as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         items = shortcuts(project)
         if remove is not None:
@@ -230,12 +248,17 @@ def change_shortcut(project, payload=None, remove=None):
                 raise ValueError('Shortcut no longer exists; reload commands')
             item = {'id': identifier, 'label': label, 'command': command}
             items = [item if old['id'] == identifier else old for old in items] if data.get('id') else items + [item]
-        temporary = path.with_suffix('.tmp')
-        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        os.fchmod(fd, 0o600)
-        with os.fdopen(fd, 'w') as stream:
-            stream.write(json.dumps(items, indent=2) + '\n')
-        temporary.replace(path)
+        fd, filename = tempfile.mkstemp(prefix=path.stem + '-', suffix='.tmp', dir=path.parent)
+        temporary = Path(filename)
+        try:
+            with os.fdopen(fd, 'w') as stream:
+                os.fchmod(stream.fileno(), 0o600)
+                stream.write(json.dumps(items, indent=2) + '\n')
+                stream.flush()
+                os.fsync(stream.fileno())
+            temporary.replace(path)
+        finally:
+            temporary.unlink(missing_ok=True)
     return command_catalog(project)
 
 
@@ -244,12 +267,20 @@ def delete_snapshot(project, selected):
     folder = Path(project['approot']) / '.ddev' / 'db_snapshots'
     if not selected or selected not in {item['path'] for item in snapshots(project)}:
         raise ValueError('Choose an existing snapshot from this project')
-    candidates = [path for path in folder.iterdir() if path.is_file()
-                  and path.name.endswith(('.gz', '.zst', '.mbstream', '.xbstream'))
-                  and str(path.resolve()) == selected]
-    if len(candidates) != 1:
-        raise ValueError('Snapshot path is ambiguous; manage it in the snapshot folder')
-    candidates[0].unlink()
+    # Anchor the deletion to an open directory, so replacing the path with a
+    # symlink after validation cannot redirect unlink to a different directory.
+    directory_fd = os.open(folder, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        anchored = Path('/proc/self/fd') / str(directory_fd)
+        candidates = [name for name in os.listdir(directory_fd)
+                      if name.endswith(('.gz', '.zst', '.mbstream', '.xbstream'))
+                      and (anchored / name).is_file()
+                      and str((anchored / name).resolve()) == selected]
+        if len(candidates) != 1:
+            raise ValueError('Snapshot path is ambiguous; manage it in the snapshot folder')
+        os.unlink(candidates[0], dir_fd=directory_fd)
+    finally:
+        os.close(directory_fd)
     return {'ok': True, 'snapshots': snapshots(project), 'message': 'Snapshot deleted'}
 
 
@@ -443,7 +474,7 @@ def follow_project_logs(entries, project):
 
 
 def project_domains(project):
-    proc = run(['ddev', 'describe', project['name'], '-j'], cwd=project['approot'], timeout=20)
+    proc = run(['ddev', 'describe', '-j'], cwd=project['approot'], timeout=20)
     descriptions = [row['raw'] for row in records(proc.stdout) if isinstance(row.get('raw'), dict)]
     if not descriptions:
         raise RuntimeError(proc.stderr.strip() or 'DDEV could not describe this project; start it and refresh domains')
@@ -599,9 +630,24 @@ def main(args):
     return {'ok': proc.returncode == 0, 'message': output[-24000:] or ('Done' if proc.returncode == 0 else 'Command failed')}
 
 
+def request_args(argv, stream):
+    if argv != ['request']:
+        return argv
+    try:
+        payload = stream.read(1048577)
+        if len(payload) > 1048576:
+            raise ValueError('Request is too large')
+        args = json.loads(payload)
+        if not isinstance(args, list) or not 1 <= len(args) <= 3 or not all(isinstance(arg, str) and '\x00' not in arg for arg in args):
+            raise ValueError('Invalid request payload')
+        return args
+    except (ValueError, TypeError, RecursionError):
+        raise ValueError('Invalid request payload') from None
+
+
 if __name__ == '__main__':
     try:
-        result = main(sys.argv[1:])
+        result = main(request_args(sys.argv[1:], sys.stdin))
     except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as exc:
         result = {'ok': False, 'message': str(exc)}
     print(json.dumps(result), flush=True)
